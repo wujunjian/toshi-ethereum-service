@@ -1,0 +1,71 @@
+FORMAT: 1A
+HOST: https://ethereum.tokenbrowser.com/
+
+# Ethereum node service
+
+This service is a light service that sits ontop of a standard ethereum node and provides helper functions for creating and sending transactions.
+
+## Transaction Skeleton [/v1/tx/skel]
+
+This endpoint creates an unsigned transaction and returns the rlp encoded data back to the called.
+
+Note: A `nonce` for the transaction is picked based on the next available nonce for the given source address,
+so it is important that the same address is used to sign the returned skeleton.
+
+### Create a new unsigned transaction [POST]
+
+Used to register a new username and associate it with an ethereum address.
+The address is extracted from the signature.
+
++ Request (application/json)
+
+        {
+            "source": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+            "destination": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
+            "amount": 1000000000000000000
+        }
+
++ Response 200 (application/json)
+
+        {
+            "transaction": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
+        }
+
+## Send Transaction [/v1/tx]
+
+This has two different options. It either accepts the same hash returned by the skeleton generation endpoint as well as the signature to authorise that.
+Or it can accept an rlp encoded signed transaction.
+
++ Request (application/json)
+
+        {
+            "transaction": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080",
+            "signature": "0x09dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e32a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b8001"
+        }
+
++ Request (application/json)
+        {
+            "transaction": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80"
+        }
+
++ Response 400 (application/json)
+
+        {
+            "errors": [
+                {
+                    "id": "invalid_signature",
+                    "message": "Invalid Signature"
+                }
+            ]
+        }
+
++ Response 400 (application/json)
+
+        {
+            "errors": [
+                {
+                    "id": "insufficient_balance",
+                    "message": "Insufficient Balance"
+                }
+            ]
+        }
