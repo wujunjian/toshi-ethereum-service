@@ -1,2 +1,3 @@
 # eth-node
-Wrapper for geth or parity to provide additional functionality
+
+A light service that sits ontop of a standard ethereum node and provides helper functions for creating and sending transactions.

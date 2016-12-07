@@ -7,53 +7,63 @@ This service is a light service that sits ontop of a standard ethereum node and 
 
 ## Transaction Skeleton [/v1/tx/skel]
 
-This endpoint creates an unsigned transaction and returns the rlp encoded data back to the called.
+This endpoint creates an unsigned transaction and returns the rlp encoded data back to the caller.
+
+Optionally the caller can provide a `none`, `gas` and `gasPrice` values to override the defaults.
 
 Note: A `nonce` for the transaction is picked based on the next available nonce for the given source address,
 so it is important that the same address is used to sign the returned skeleton.
 
 ### Create a new unsigned transaction [POST]
 
-Used to register a new username and associate it with an ethereum address.
-The address is extracted from the signature.
++ Request (application/json)
+
+        {
+            "from": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+            "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
+            "value": 1000000000000000000
+        }
 
 + Request (application/json)
 
         {
-            "source": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "destination": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
-            "amount": 1000000000000000000
+            "from": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+            "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
+            "gas": 21000,
+            "gasPrice": 20000000000,
+            "nonce":
+            "value": 1000000000000000000
         }
 
 + Response 200 (application/json)
 
         {
-            "transaction": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
+            "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
         }
 
 ## Send Transaction [/v1/tx]
 
 ### Send transaction [POST]
 
-This has two different options. It either accepts the same hash returned by the skeleton generation endpoint as well as the signature to authorise that.
-Or it can accept an rlp encoded signed transaction.
+This has two different options. It either accepts the same transaction hash returned by the skeleton generation endpoint as well as the signature to authorise that, or it can simply accept an rlp encoded signed transaction.
 
 + Request (application/json)
 
         {
-            "transaction": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080",
+            "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080",
             "signature": "0x09dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e32a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b8001"
         }
 
 + Request (application/json)
         {
-            "transaction": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80"
+            "tx": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80"
+
         }
 
 + Response 200 (application/json)
 
         {
-            "transaction_hash": "0xfde977a1ebd89cb3d0f17ce85efedca087788ddb50576c9b976c46f2eba21465"
+            "tx_hash": "0xfde977a1ebd89cb3d0f17ce85efedca087788ddb50576c9b976c46f2eba21465"
         }
 
 + Response 400 (application/json)
@@ -72,8 +82,40 @@ Or it can accept an rlp encoded signed transaction.
         {
             "errors": [
                 {
-                    "id": "insufficient_balance",
-                    "message": "Insufficient Balance"
+                    "id": "insufficient_funds",
+                    "message": "Insufficient Funds"
                 }
             ]
+        }
+
+## Query Transactions [/v1/tx/{tx_hash}]
+
+### Get Transacion [GET]
+
+Returns the details of a transaction.
+
++ Response 200 (application/json)
+
+        {
+            "tx": {
+                "transactionIndex": "0x00",
+                "raw": "0xf86c831000008504a817c80082520894056db290f8ba3250ca64a45d16284d04bc6f5fbf8502540be400801ca0114655db4898a6580f0abfc53fc0c0a88110724abf8d41f2abf206c69d7d4c82a01ed2cdf6939484ef6aebc39ce5662363b82140106bbc374a0f1381b6948214b0",
+                "input": "0x",
+                "nonce": "0x100000",
+                "gas": "0x5208",
+                "blockHash": "0xfc6e2a636c945fb3eade5d180e99bc1969480b522c2dde5727677dbac9594863",
+                "value": "0x02540be400",
+                "gasPrice": "0x04a817c800",
+                "creates": None,
+                "blockNumber": "0x01",
+                "to": "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf",
+                "from": "0xde3d2d9dd52ea80f7799ef4791063a5458d13913",
+                "hash": "0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c"
+            }
+        }
+
++ Response 404 (application/json)
+
+        {
+            "tx": null
         }
