@@ -1,4 +1,4 @@
-from tokenid import app
+from tokeneth import app
 
 if __name__ == "__main__":
     app.main()
