@@ -22,8 +22,11 @@ DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_N
 #### Config
 
 ```
-heroku buildpacks:add python
+heroku buildpacks:add https://github.com/debitoor/ssh-private-key-buildpack.git
 heroku buildpacks:add https://github.com/tristan/heroku-buildpack-pgsql-stunnel.git
+heroku buildpacks:add heroku/python
+
+heroku config:set SSH_KEY=$(cat path/to/your/keys/id_rsa | base64)
 ```
 
 The `Procfile` and `runtime.txt` files required for running on heroku

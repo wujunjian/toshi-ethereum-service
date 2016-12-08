@@ -1,6 +1,6 @@
 #PYTHON3
 redis==2.10.5
 asyncpg==0.7.0
--e git+git://github.com/tokenbrowser/tokenbrowser-python.git#egg=tokenbrowser
+-e git+ssh://git@github.com/tokenbrowser/tokenbrowser-python.git#egg=tokenbrowser
 -e git+git://github.com/tristan/asyncbb.git#egg=asyncbb
 -e git+git://github.com/tristan/asyncbb-eth.git#egg=asyncbb-eth
