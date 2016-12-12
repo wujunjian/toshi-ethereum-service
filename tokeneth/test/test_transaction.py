@@ -57,7 +57,6 @@ class TransactionTest(AsyncHandlerTest):
             self.assertEqual(resp.code, 200)
             body = json_decode(resp.body)
             if body['tx'] is None or body['tx']['blockNumber'] is None:
-                print("NONE!")
                 await asyncio.sleep(0.1)
             else:
                 break

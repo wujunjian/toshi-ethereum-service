@@ -17,9 +17,11 @@ env/bin/pip install -r requirements.txt
 DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_NODE_URL=<jsonrpc-url> env/bin/python -m tokeneth
 ```
 
-### Running on heroku
+## Running on heroku
 
-#### Config
+### Config
+
+#### Buildpacks
 
 ```
 heroku buildpacks:add https://github.com/debitoor/ssh-private-key-buildpack.git
@@ -29,24 +31,17 @@ heroku buildpacks:add heroku/python
 heroku config:set SSH_KEY=$(cat path/to/your/keys/id_rsa | base64)
 ```
 
+#### Extra Config variables
+
+```
+PGSQL_STUNNEL_ENABLED=1
+ETHEREUM_NODE_URL=<jsonrpc-url>
+```
+
 The `Procfile` and `runtime.txt` files required for running on heroku
 are provided.
 
-The heroku instance needs to have a `CONFIGFILE` Config Variable set
-with the filename of the `config-*.ini` file to use.
-
-`config-heroku.ini` is currently the test environment and is hardcoded
-to run on the heroku domain toshi-app.herokuapp.com.
-
-`config-production.ini` is the current production environment and is
-hardcoded to run on the heroku domain token-service.herokuapp.com.
-
-To run on other domains, the app must have access to a postgresql
-instance (generally set up via heroku add-ons), and a `config-*.ini`
-file adjusted to point to the respective services, or a `DATABASE_URL`
-environment variable set
-
-#### Start
+### Start
 
 ```
 heroku ps:scale web:1

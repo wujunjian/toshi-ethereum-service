@@ -119,3 +119,16 @@ Returns the details of a transaction.
         {
             "tx": null
         }
+
+## Get Address Balance [v1/balance/{address}]
+
+### Get Balance [GET]
+
+Returns the balance of the given address. Two values are returned, `confirmed_balance` is the balance of the address that has been confirmed by the ethereum network. `unconfirmed_balance` is the confirmed balance plus or minus the value (as well as estimated fees for outgoing transactions) for any pending transactions that have yet to be confirmed by the network.
+
++ Response 200 (application/json)
+
+        {
+            "confirmed_balance": 761751855997712,
+            "unconfirmed_balance": 761751855997712
+        }
