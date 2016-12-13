@@ -13,5 +13,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     PRIMARY KEY(transaction_hash)
 );
 
+CREATE TABLE IF NOT EXISTS last_blocknumber (
+    blocknumber INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_from_address_confirmed ON transactions (from_address, confirmed NULLS FIRST);
 CREATE INDEX IF NOT EXISTS idx_transactions_to_address_confirmed ON transactions (to_address, confirmed NULLS FIRST);
