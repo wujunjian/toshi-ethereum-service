@@ -21,6 +21,16 @@ class TransactionTest(AsyncHandlerTest):
     def fetch(self, url, **kwargs):
         return super(TransactionTest, self).fetch("/v1{}".format(url), **kwargs)
 
+    async def wait_on_tx_confirmation(self, tx_hash):
+        while True:
+            resp = await self.fetch("/tx/{}".format(tx_hash))
+            self.assertEqual(resp.code, 200)
+            body = json_decode(resp.body)
+            if body['tx'] is None or body['tx']['blockNumber'] is None:
+                await asyncio.sleep(1)
+            else:
+                return body['tx']
+
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
@@ -52,14 +62,40 @@ class TransactionTest(AsyncHandlerTest):
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
 
-        while True:
-            resp = await self.fetch("/tx/{}".format(tx_hash))
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_and_send_multiple_transactions(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10
+        }
+
+        tx_hashes = []
+
+        for i in range(10):
+            resp = await self.fetch("/tx/skel", method="POST", body=body)
+
             self.assertEqual(resp.code, 200)
-            body = json_decode(resp.body)
-            if body['tx'] is None or body['tx']['blockNumber'] is None:
-                await asyncio.sleep(0.1)
-            else:
-                break
+
+            tx = sign_transaction(json_decode(resp.body)['tx'], FAUCET_PRIVATE_KEY)
+
+            resp = await self.fetch("/tx", method="POST", body={
+                "tx": tx
+            })
+
+            self.assertEqual(resp.code, 200, resp.body)
+
+            tx_hash = json_decode(resp.body)['tx_hash']
+            tx_hashes.append(tx_hash)
+
+        for tx_hash in tx_hashes:
+            await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test
     @requires_parity
