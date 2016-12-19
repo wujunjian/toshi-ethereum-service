@@ -21,7 +21,7 @@ class BlockMonitor(tokeneth.monitor.BlockMonitor):
 
         self.confirmation_queue = asyncio.Queue()
 
-    async def send_confirmation_notifications(self, transaction):
+    async def send_transaction_notifications(self, transaction):
         self.confirmation_queue.put_nowait(transaction)
 
 class BalanceTest(FaucetMixin, AsyncHandlerTest):
@@ -40,6 +40,7 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
 
         monitor = BlockMonitor(self._app.connection_pool, self._app.config['ethereum']['url'])
         await asyncio.sleep(0.1)
+        self._app.monitor = monitor
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
         val = 761751855997712
@@ -72,11 +73,17 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
 
-        print(tx_hash)
-
+        # wait until the transaction is confirmed
+        got_unconfirmed = 0
         while True:
             tx = await monitor.confirmation_queue.get()
             if tx['hash'] == tx_hash:
-                break
+                if tx['blockNumber'] is None:
+                    got_unconfirmed += 1
+                else:
+                    break
+
+        # make sure we got an unconfirmed tx notification
+        self.assertEqual(got_unconfirmed, 1)
 
         await monitor.shutdown()

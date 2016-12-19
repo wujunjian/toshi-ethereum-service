@@ -59,3 +59,18 @@ To run a single test, use:
 ```
 env/bin/python -m tornado.testing tokeneth.test.<test-package>
 ```
+
+# Development notes
+
+## Pending transaction monitoring
+
+It's important to note that the pending transaction monitoring handled in
+[/tokenbrowser/token-ethereum-service/blob/master/tokeneth/monitor.py](`monitor.py`)
+only catches pending transactions that come from outside the connected node. That
+is, any new transactions originating from our side do not get picked up by the
+`eth_newPendingTransactionFilter`. This makes sense from the point of view of the
+node, as the user of the node should already know that it's started broadcasting a
+new transaction, but should be kept in mind that this means the notification needs
+to be triggered manually when originating from our own services. Even more
+consideration will be needed in the future if this evolves to run over multiple
+processes connected to multiple different nodes.

@@ -2,6 +2,7 @@ import asyncbb.web
 import os
 
 from . import handlers
+from .monitor import BlockMonitor
 
 urls = [
     (r"^/v1/tx/skel/?$", handlers.TransactionSkeletonHandler),
@@ -24,4 +25,5 @@ class Application(asyncbb.web.Application):
 def main():
 
     app = Application(urls)
+    app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'])
     app.start()
