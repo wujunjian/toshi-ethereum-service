@@ -49,6 +49,17 @@ heroku ps:scale web:1
 
 ## Running tests
 
+Install external software dependencies
+
+```
+brew install postgresql
+brew install redis
+brew tap ethcore/ethcore
+brew install parity --beta
+brew tap ethereum/ethereum
+brew install cpp-ethereum
+```
+
 A convinience script exists to run all tests:
 ```
 ./run_tests.sh
