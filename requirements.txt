@@ -4,3 +4,4 @@ asyncpg==0.7.0
 -e git+ssh://git@github.com/tokenbrowser/tokenbrowser-python.git#egg=tokenbrowser
 -e git+git://github.com/tristan/asyncbb.git#egg=asyncbb
 -e git+git://github.com/tristan/asyncbb-eth.git#egg=asyncbb-eth
+-e git+ssh://git@github.com/tokenbrowser/token-services-lib.git#egg=token-services

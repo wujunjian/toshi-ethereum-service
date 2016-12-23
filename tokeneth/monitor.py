@@ -40,6 +40,10 @@ class BlockMonitor:
         self._new_pending_transaction_filter_id = await self.eth.eth_newPendingTransactionFilter()
         self._new_block_filter_id = await self.eth.eth_newBlockFilter()
 
+        # list of callbacks for transaction notifications
+        # form is {token_id: [method, ...], ...}
+        self.callbacks = {}
+
         self.schedule_filter_poll()
 
     def schedule_block_check(self, delay=DEFAULT_BLOCK_CHECK_DELAY):
@@ -144,6 +148,69 @@ class BlockMonitor:
             await self._filter_poll_process
 
     async def send_transaction_notifications(self, transaction):
-        # TODO: send out notifications about the transaction to anyone
-        # who's registered as interested
+
+        to_address = transaction['to']
+        from_address = transaction['from']
+
+        token_ids = []
+        async with self.pool.acquire() as con:
+            if to_address:
+                to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
+                token_ids.extend(to_ids)
+            if from_address:
+                from_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", from_address)
+                token_ids.extend(from_ids)
+
+            db_tx = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1",
+                                       transaction['hash'])
+
+        # check if we have this transaction saved in the database with
+        # a specific token_id for the sender
+        if db_tx:
+            sender_token_id = db_tx['sender_token_id']
+        else:
+            sender_token_id = None
+
+        # for each token_id involved, see if there are any callback methods
+        # registered, and if so, use those, otherwise fallback on push notifications
+
+        # TODO: this doesn't currently take into account multiple clients for
+        # the same token_id, such that if one client would be connected via a
+        # websocket and others from the same token_id would need to receive these
+        # notifications via PNs, then with the method below this wont work.
+        # Some extra consideration in how to be aware of multiple clients per
+        # token_id and how to identify which are connected via websockets and
+        # which are not will have to be made.
+
+        for token_id in token_ids:
+            if token_id in self.callbacks and len(self.callbacks) > 0:
+                for callback in self.callbacks[token_id]:
+                    callback(transaction, sender_token_id)
+            else:
+                # check PN registrations for the token_id
+                async with self.pool.acquire() as con:
+                    # apn
+                    apn_ids = await con.fetch("SELECT api_id FROM apn_registrations WHERE token_id = $1", token_id)
+                    # gcm
+                    gcm_ids = await con.fetch("SELECT gcm_id FROM gcm_registrations WHERE token_id = $1", token_id)
+
+                for row in apn_ids:
+
+                    self.send_apn(row['apn_id'], transaction, sender_token_id)
+
+                for row in gcm_ids:
+
+                    self.send_gcm(row['gcm_id'], transaction, sender_token_id)
+
+    def send_apn(self, apn_id, transaction, sender_token_id):
+        # TODO: format transaction and send APN
         pass
+
+    def send_gcm(self, gcm_id, transaction, sender_token_id):
+        # TODO: format transaction and send GCM PN
+        pass
+
+    def register(self, token_id, callback):
+        callbacks = self.callbacks.setdefault(token_id, [])
+        if callback not in callbacks:
+            callbacks.append(callback)

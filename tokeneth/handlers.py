@@ -13,6 +13,7 @@ from tokenbrowser.tx import (
     encode_transaction, decode_transaction, is_transaction_signed,
     signature_from_transaction, add_signature_to_transaction
 )
+from tokenservices.handlers import RequestVerificationMixin
 
 class BalanceMixin:
 
@@ -140,32 +141,45 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
             "tx": transaction
         })
 
-class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMixin, BaseHandler):
+class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMixin, RequestVerificationMixin, BaseHandler):
 
     async def post(self):
 
-        if 'tx' not in self.json:
+        if 'payload' in self.json:
+
+            self.verify_payload()
+
+            payload = self.json['payload']
+            sender_token_id = self.json['address']
+
+        else:
+
+            # this is an anonymous transaction
+            payload = self.json
+            sender_token_id = None
+
+        if 'tx' not in payload:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
 
         try:
-            tx = decode_transaction(self.json['tx'])
+            tx = decode_transaction(payload['tx'])
         except:
             raise JSONHTTPError(400, body={'errors': [{'id': 'invalid_transaction', 'message': 'Invalid Transaction'}]})
 
         if is_transaction_signed(tx):
 
-            if 'signature' in self.json:
+            if 'signature' in payload:
 
                 tx_sig = signature_from_transaction(tx)
-                if tx_sig != self.json['signature']:
+                if tx_sig != payload['signature']:
 
                     raise JSONHTTPError(400, body={'errors': [{'id': 'invalid_signature', 'message': 'Invalid Signature'}]})
         else:
 
-            if 'signature' not in self.json:
+            if 'signature' not in payload:
                 raise JSONHTTPError(400, body={'errors': [{'id': 'missing_signature', 'message': 'Missing Signature'}]})
 
-            signature = self.json['signature']
+            signature = payload['signature']
 
             if not validate_signature(signature):
                 raise JSONHTTPError(400, body={'errors': [{'id': 'invalid_signature', 'message': 'Invalid Signature'}]})
@@ -214,8 +228,8 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
         # add tx to database
         async with self.db:
             await self.db.execute(
-                "INSERT INTO transactions (transaction_hash, from_address, to_address, value, estimated_gas_cost) VALUES ($1, $2, $3, $4, $5)",
-                tx_hash, from_address, to_address, str(tx.value), str(tx.startgas * tx.gasprice))
+                "INSERT INTO transactions (transaction_hash, from_address, to_address, value, estimated_gas_cost, sender_token_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                tx_hash, from_address, to_address, str(tx.value), str(tx.startgas * tx.gasprice), sender_token_id)
             await self.db.commit()
 
         if hasattr(self.application, 'monitor'):
@@ -236,3 +250,111 @@ class TransactionHandler(EthereumMixin, BaseHandler):
         self.write({
             "tx": tx
         })
+
+class TransactionNotificationRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self):
+
+        self.verify_payload()
+
+        payload = self.json['payload']
+        token_id = self.json['address']
+
+        if 'addresses' not in payload or len(payload['addresses']) == 0:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        addresses = payload['addresses']
+
+        insert_args = []
+        for address in addresses:
+            if not validate_address(address):
+                raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+            insert_args.extend([token_id, address])
+
+        async with self.db:
+
+            await self.db.execute(
+                "INSERT INTO notification_registrations VALUES {} ON CONFLICT DO NOTHING".format(
+                    ', '.join('(${}, ${})'.format((i * 2) + 1, (i * 2) + 2) for i, _ in enumerate(addresses))),
+                *insert_args)
+
+            await self.db.commit()
+
+        self.set_status(204)
+
+class TransactionNotificationDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self):
+
+        self.verify_payload()
+
+        payload = self.json['payload']
+        token_id = self.json['address']
+
+        if 'addresses' not in payload or len(payload['addresses']) == 0:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        addresses = payload['addresses']
+
+        for address in addresses:
+            if not validate_address(address):
+                raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        async with self.db:
+
+            await self.db.execute(
+                "DELETE FROM notification_registrations WHERE token_id = $1 AND ({})".format(
+                    ' OR '.join('eth_address = ${}'.format(i + 2) for i, _ in enumerate(addresses))),
+                token_id, *addresses)
+
+            await self.db.commit()
+
+        self.set_status(204)
+
+class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self, service):
+
+        self.verify_payload()
+
+        payload = self.json['payload']
+        token_id = self.json['address']
+
+        if 'registration_id' not in payload:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        # TODO: registration id verification
+
+        async with self.db:
+
+            await self.db.execute(
+                "INSERT INTO {0}_registrations ({0}_id, token_id) VALUES ($1, $2) ON CONFLICT ({0}_id) DO UPDATE SET token_id = $2".format(service),
+                payload['registration_id'], token_id)
+
+            await self.db.commit()
+
+        self.set_status(204)
+
+class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self, service):
+
+        self.verify_payload()
+
+        payload = self.json['payload']
+        token_id = self.json['address']
+
+        if 'registration_id' not in payload:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        # TODO: registration id verification
+
+        async with self.db:
+
+            await self.db.execute(
+                "DELETE FROM {0}_registrations WHERE {0}_id = $1 AND token_id = $2".format(service),
+                payload['registration_id'], token_id)
+
+            await self.db.commit()
+
+        self.set_status(204)
