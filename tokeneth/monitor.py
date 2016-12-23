@@ -211,6 +211,15 @@ class BlockMonitor:
         pass
 
     def register(self, token_id, callback):
+        """Registers a callback to receive transaction notifications for the
+        given token identifier.
+
+        The callback must accept 2 parameters, the transaction dict, and the
+        sender's token identifier"""
         callbacks = self.callbacks.setdefault(token_id, [])
         if callback not in callbacks:
             callbacks.append(callback)
+
+    def deregister(self, token_id, callback):
+        if token_id in self.callbacks and callback in self.callbacks[token_id]:
+            self.callbacks[token_id].remove(callback)
