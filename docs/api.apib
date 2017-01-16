@@ -5,6 +5,8 @@ HOST: https://token-eth-service.herokuapp.com
 
 This service is a light service that sits ontop of a standard ethereum node and provides helper functions for creating and sending transactions.
 
+# Group Transactions
+
 ## Transaction Skeleton [/v1/tx/skel]
 
 This endpoint creates an unsigned transaction and returns the rlp encoded data back to the caller.
@@ -41,7 +43,7 @@ so it is important that the same address is used to sign the returned skeleton.
             "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
         }
 
-## Send Transaction [/v1/tx]
+## Transactions [/v1/tx]
 
 ### Send transaction [POST]
 
@@ -98,9 +100,14 @@ This has two different options. It either accepts the same transaction hash retu
             ]
         }
 
-## Query Transactions [/v1/tx/{tx_hash}]
 
-### Get Transacion [GET]
+# Group Queries
+
+## Transaction [/v1/tx/{tx_hash}]
++ Parameters
+    + tx_hash (string) - Transaction hash
+
+### Get Transaction [GET]
 
 Returns the details of a transaction.
 
@@ -130,7 +137,9 @@ Returns the details of a transaction.
             "tx": null
         }
 
-## Get Address Balance [v1/balance/{address}]
+## Get Address Balance [/v1/balance/{address}]
++ Parameters
+    + address (string) - Ethereum address
 
 ### Get Balance [GET]
 
@@ -143,7 +152,10 @@ Returns the balance of the given address. Two values are returned, `confirmed_ba
             "unconfirmed_balance": 761751855997712
         }
 
-## Register for transaction notifications [v1/register]
+
+# Group Notifications
+
+## Register for transaction notifications [/v1/register]
 
 ### Register [POST]
 
@@ -195,7 +207,7 @@ Register that a user wants to receive notifications of transactions to and from 
             ]
         }
 
-## Deregister addresses from transaction notifications [v1/deregister]
+## Deregister addresses from transaction notifications [/v1/deregister]
 
 ### Deregister [POST]
 
@@ -247,9 +259,9 @@ Removes the given addresses from the list of addresses that the user will receiv
             ]
         }
 
-## Register for apple push notifications [v1/apn/register]
+## Register for apple push notifications [/v1/apn/register]
 
-### Register [POST]
+### APN Registration [POST]
 
 Register for APN push notifications. This links a token identity to a push notification token. This will enable push notifications for any of the addresses the token identity has registered to receive transaction notifications from.
 
@@ -299,9 +311,9 @@ Register for APN push notifications. This links a token identity to a push notif
             ]
         }
 
-## Register for google push notifications [v1/gcm/register]
+## Register for google push notifications [/v1/gcm/register]
 
-### Register [POST]
+### GCM Registration [POST]
 
 Register for Google Cloud Messaging push notifications. This links a token identity to a push notification token. This will enable push notifications for any of the addresses the token identity has registered to receive transaction notifications from.
 
