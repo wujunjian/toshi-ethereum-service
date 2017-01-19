@@ -63,8 +63,8 @@ class BalanceHandler(BalanceMixin, DatabaseMixin, EthereumMixin, BaseHandler):
         confirmed, unconfirmed = await self.get_balances(address)
 
         self.write({
-            "confirmed_balance": confirmed,
-            "unconfirmed_balance": unconfirmed
+            "confirmed_balance": hex(confirmed),
+            "unconfirmed_balance": hex(unconfirmed)
         })
 
 class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):

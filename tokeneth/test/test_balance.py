@@ -5,6 +5,7 @@ from tornado.testing import gen_test
 from asyncbb.test.database import requires_database
 from asyncbb.ethereum.test.parity import requires_parity
 from asyncbb.ethereum.test.faucet import FaucetMixin, FAUCET_ADDRESS
+from tokenbrowser.utils import parse_int
 
 class BalanceTest(FaucetMixin, AsyncHandlerTest):
 
@@ -29,8 +30,8 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
         self.assertEqual(resp.code, 200)
 
         data = json_decode(resp.body)
-        self.assertEqual(data['confirmed_balance'], val)
-        self.assertEqual(data['unconfirmed_balance'], val)
+        self.assertEqual(parse_int(data['confirmed_balance']), val)
+        self.assertEqual(parse_int(data['unconfirmed_balance']), val)
 
     @gen_test(timeout=30)
     @requires_database
@@ -44,8 +45,8 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
         self.assertEqual(resp.code, 200)
 
         data = json_decode(resp.body)
-        self.assertEqual(data['confirmed_balance'], 0)
-        self.assertEqual(data['unconfirmed_balance'], 0)
+        self.assertEqual(data['confirmed_balance'], "0x0")
+        self.assertEqual(data['unconfirmed_balance'], "0x0")
 
     @gen_test(timeout=30)
     @requires_database
@@ -66,5 +67,5 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
         self.assertEqual(resp.code, 200)
 
         data = json_decode(resp.body)
-        self.assertEqual(data['confirmed_balance'], val)
-        self.assertEqual(data['unconfirmed_balance'], val * 2)
+        self.assertEqual(parse_int(data['confirmed_balance']), val)
+        self.assertEqual(parse_int(data['unconfirmed_balance']), val * 2)
