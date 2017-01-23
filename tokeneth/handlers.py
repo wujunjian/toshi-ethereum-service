@@ -15,6 +15,10 @@ from tokenbrowser.tx import (
 )
 from tokenservices.handlers import RequestVerificationMixin
 
+import logging
+logging.basicConfig()
+log = logging.getLogger("token.log")
+
 class BalanceMixin:
 
     async def get_balances(self, eth_address, ignore_pending_recieved=False):
@@ -196,6 +200,9 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
 
         # make sure the account has enough funds for the transaction
         network_balance, balance = await self.get_balances(from_address, ignore_pending_recieved=True)
+
+        log.info("Attempting to send transaction\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
+            from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
 
         if balance < (tx.value + (tx.startgas * tx.gasprice)):
             raise JSONHTTPError(400, body={'errors': [{'id': 'insufficient_funds', 'message': 'Insufficient Funds'}]})
