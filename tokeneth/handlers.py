@@ -131,12 +131,12 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
 
         self.write({
             "tx_data": {
-                "nonce": nonce,
+                "nonce": hex(nonce),
                 "from": from_address,
                 "to": to_address,
-                "value": value,
-                "startGas": gas,
-                "gasPrice": gas_price
+                "value": hex(value),
+                "startGas": hex(gas),
+                "gasPrice": hex(gas_price)
             },
             "tx": transaction
         })
