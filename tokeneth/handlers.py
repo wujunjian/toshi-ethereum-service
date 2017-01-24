@@ -149,18 +149,13 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
 
     async def post(self):
 
-        if 'payload' in self.json:
-
-            self.verify_payload()
-
-            payload = self.json['payload']
-            sender_token_id = self.json['address']
-
+        if self.is_request_signed():
+            sender_token_id = self.verify_request()
         else:
-
             # this is an anonymous transaction
-            payload = self.json
             sender_token_id = None
+
+        payload = self.json
 
         if 'tx' not in payload:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
@@ -262,10 +257,8 @@ class TransactionNotificationRegistrationHandler(RequestVerificationMixin, Datab
 
     async def post(self):
 
-        self.verify_payload()
-
-        payload = self.json['payload']
-        token_id = self.json['address']
+        token_id = self.verify_request()
+        payload = self.json
 
         if 'addresses' not in payload or len(payload['addresses']) == 0:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
@@ -293,10 +286,8 @@ class TransactionNotificationDeregistrationHandler(RequestVerificationMixin, Dat
 
     async def post(self):
 
-        self.verify_payload()
-
-        payload = self.json['payload']
-        token_id = self.json['address']
+        token_id = self.verify_request()
+        payload = self.json
 
         if 'addresses' not in payload or len(payload['addresses']) == 0:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
@@ -322,10 +313,8 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
 
     async def post(self, service):
 
-        self.verify_payload()
-
-        payload = self.json['payload']
-        token_id = self.json['address']
+        token_id = self.verify_request()
+        payload = self.json
 
         if 'registration_id' not in payload:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
@@ -346,10 +335,8 @@ class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandl
 
     async def post(self, service):
 
-        self.verify_payload()
-
-        payload = self.json['payload']
-        token_id = self.json['address']
+        token_id = self.verify_request()
+        payload = self.json
 
         if 'registration_id' not in payload:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})

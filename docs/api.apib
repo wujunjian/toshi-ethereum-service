@@ -71,13 +71,16 @@ This has two different options. It either accepts the same transaction hash retu
         }
 
 + Request (application/json)
+
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
         {
-            "payload": {
-                "tx": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80",
-                "timestamp": 1480077346,
-            },
-            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "signature": "0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801"
+            "tx": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80"
         }
 
 + Response 200 (application/json)
@@ -171,13 +174,16 @@ Register that a user wants to receive notifications of transactions to and from 
 
 + Request (application/json)
 
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
         {
-            "payload": {
-                "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
-                "timestamp": 1480077346,
-            },
-            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "signature": "0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801"
+            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
         }
 
 + Response 204
@@ -223,13 +229,16 @@ Removes the given addresses from the list of addresses that the user will receiv
 
 + Request (application/json)
 
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
         {
-            "payload": {
-                "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
-                "timestamp": 1480077346,
-            },
-            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "signature": "0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801"
+            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
         }
 
 + Response 204
@@ -275,13 +284,16 @@ Register for APN push notifications. This links a token identity to a push notif
 
 + Request (application/json)
 
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
         {
-            "payload": {
-                "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
-                "timestamp": 1480077346,
-            },
-            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "signature": "0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801"
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
         }
 
 + Response 204
@@ -327,13 +339,16 @@ Register for Google Cloud Messaging push notifications. This links a token ident
 
 + Request (application/json)
 
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
         {
-            "payload": {
-                "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
-                "timestamp": 1480077346,
-            },
-            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
-            "signature": "0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801"
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
         }
 
 + Response 204

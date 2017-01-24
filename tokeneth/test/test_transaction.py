@@ -1,14 +1,14 @@
 import asyncio
 import time
-from tornado.escape import json_decode
+from tornado.escape import json_decode, json_encode
 from tornado.testing import gen_test
 
 from tokeneth.app import urls
-from asyncbb.test.base import AsyncHandlerTest
+from tokenservices.test.base import AsyncHandlerTest
 from asyncbb.test.database import requires_database
 from asyncbb.test.redis import requires_redis
 from asyncbb.ethereum.test.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenbrowser.crypto import sign_payload
+from tokenbrowser.request import sign_request
 from tokenbrowser.utils import data_decoder
 from tokenbrowser.tx import sign_transaction
 
@@ -23,8 +23,9 @@ class TransactionTest(AsyncHandlerTest):
     def get_urls(self):
         return urls
 
-    def fetch(self, url, **kwargs):
-        return super(TransactionTest, self).fetch("/v1{}".format(url), **kwargs)
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
 
     async def wait_on_tx_confirmation(self, tx_hash):
         while True:
@@ -131,15 +132,10 @@ class TransactionTest(AsyncHandlerTest):
         tx = sign_transaction(json_decode(resp.body)['tx'], FAUCET_PRIVATE_KEY)
 
         body = {
-            "payload": {
-                "tx": tx,
-                "timestamp": int(time.time())
-            },
-            "address": TEST_ADDRESS_2
+            "tx": tx
         }
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY_2, body['payload'])
 
-        resp = await self.fetch("/tx", method="POST", body=body)
+        resp = await self.fetch_signed("/tx", signing_key=TEST_PRIVATE_KEY_2, method="POST", body=body)
 
         self.assertEqual(resp.code, 200, resp.body)
 
@@ -177,14 +173,13 @@ class TransactionTest(AsyncHandlerTest):
         tx = sign_transaction(json_decode(resp.body)['tx'], FAUCET_PRIVATE_KEY)
 
         body = {
-            "payload": {
-                "tx": tx,
-                "timestamp": int(time.time())
-            },
-            "address": TEST_ADDRESS_2
+            "tx": tx
         }
-        body['signature'] = sign_payload(data_decoder(FAUCET_PRIVATE_KEY), body['payload'])
 
-        resp = await self.fetch("/tx", method="POST", body=body)
+        timestamp = int(time.time())
+        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/tx", timestamp, json_encode(body).encode('utf-8'))
+
+        resp = await self.fetch_signed("/tx", method="POST", body=body,
+                                       address=TEST_ADDRESS_2, signature=signature, timestamp=timestamp)
 
         self.assertEqual(resp.code, 400, resp.body)

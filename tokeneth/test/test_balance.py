@@ -1,4 +1,4 @@
-from asyncbb.test.base import AsyncHandlerTest
+from tokenservices.test.base import AsyncHandlerTest
 from tokeneth.app import urls
 from tornado.escape import json_decode
 from tornado.testing import gen_test
@@ -12,8 +12,9 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
     def get_urls(self):
         return urls
 
-    def fetch(self, url, **kwargs):
-        return super(BalanceTest, self).fetch("/v1{}".format(url), **kwargs)
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
 
     @gen_test(timeout=30)
     @requires_database

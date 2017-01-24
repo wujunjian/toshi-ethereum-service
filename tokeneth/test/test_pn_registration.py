@@ -1,10 +1,12 @@
-from tornado.escape import json_decode
+import time
+
+from tornado.escape import json_encode
 from tornado.testing import gen_test
 
 from tokeneth.app import urls
-from asyncbb.test.base import AsyncHandlerTest
+from tokenservices.test.base import AsyncHandlerTest
 from asyncbb.test.database import requires_database
-from tokenbrowser.crypto import sign_payload
+from tokenbrowser.request import sign_request
 from tokenbrowser.utils import data_decoder
 from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 
@@ -24,28 +26,19 @@ class APNRegistrationTest(AsyncHandlerTest):
     def get_urls(self):
         return urls
 
-    def fetch(self, url, **kwargs):
-        return super(APNRegistrationTest, self).fetch("/v1{}".format(url), **kwargs)
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
 
     @gen_test
     @requires_database
     async def test_register_for_push_notifications(self):
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID,
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/apn/register", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -60,21 +53,15 @@ class APNRegistrationTest(AsyncHandlerTest):
     @requires_database
     async def test_invalid_signature_in_pn_registration(self):
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID,
         }
 
-        body['signature'] = sign_payload(data_decoder(FAUCET_PRIVATE_KEY), body['payload'])
+        timestamp = int(time.time())
+        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/apn/register", timestamp, json_encode(body).encode('utf-8'))
 
-        resp = await self.fetch("/apn/register", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/register", method="POST", body=body,
+                                       signature=signature, address=TEST_ADDRESS, timestamp=timestamp)
 
         self.assertEqual(resp.code, 400, resp.body)
 
@@ -97,21 +84,11 @@ class APNRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
                                TEST_APN_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/apn/register", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -134,21 +111,11 @@ class APNRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2), ($3, $4)",
                                TEST_APN_ID, FAUCET_ADDRESS, TEST_APN_ID_2, TEST_ADDRESS_2)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/apn/register", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -169,21 +136,11 @@ class APNRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
                                TEST_APN_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/apn/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -200,21 +157,11 @@ class APNRegistrationTest(AsyncHandlerTest):
         """Makes sure that there is no failure when deregistering when the
         registration id hasn't been registered"""
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/apn/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -233,21 +180,13 @@ class APNRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
                                TEST_APN_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_APN_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_APN_ID
         }
+        timestamp = int(time.time())
+        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/apn/deregister", timestamp, json_encode(body).encode('utf-8'))
 
-        body['signature'] = sign_payload(data_decoder(FAUCET_PRIVATE_KEY), body['payload'])
-
-        resp = await self.fetch("/apn/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/apn/deregister", method="POST", body=body, timestamp=timestamp, signature=signature, address=TEST_ADDRESS)
 
         self.assertEqual(resp.code, 400, resp.body)
 
@@ -264,28 +203,19 @@ class GCMRegistrationTest(AsyncHandlerTest):
     def get_urls(self):
         return urls
 
-    def fetch(self, url, **kwargs):
-        return super(GCMRegistrationTest, self).fetch("/v1{}".format(url), **kwargs)
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
 
     @gen_test
     @requires_database
     async def test_register_for_push_notifications(self):
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/gcm/register", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -300,21 +230,15 @@ class GCMRegistrationTest(AsyncHandlerTest):
     @requires_database
     async def test_invalid_signature_in_pn_registration(self):
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(data_decoder(FAUCET_PRIVATE_KEY), body['payload'])
+        timestamp = int(time.time())
+        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/gcm/register", timestamp, json_encode(body).encode('utf-8'))
 
-        resp = await self.fetch("/gcm/register", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/register", method="POST", body=body,
+                                       address=TEST_ADDRESS, timestamp=timestamp, signature=signature)
 
         self.assertEqual(resp.code, 400, resp.body)
 
@@ -337,21 +261,11 @@ class GCMRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
                                TEST_GCM_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/gcm/register", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -374,21 +288,11 @@ class GCMRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2), ($3, $4)",
                                TEST_GCM_ID, FAUCET_ADDRESS, TEST_GCM_ID_2, TEST_ADDRESS_2)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/gcm/register", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -408,21 +312,11 @@ class GCMRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
                                TEST_GCM_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/gcm/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -439,21 +333,11 @@ class GCMRegistrationTest(AsyncHandlerTest):
         """Makes sure that there is no failure when deregistering when the
         registration id hasn't been registered"""
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(TEST_PRIVATE_KEY, body['payload'])
-
-        resp = await self.fetch("/gcm/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
@@ -472,21 +356,15 @@ class GCMRegistrationTest(AsyncHandlerTest):
             await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
                                TEST_GCM_ID, TEST_ADDRESS)
 
-        resp = await self.fetch("/timestamp")
-        self.assertEqual(resp.code, 200)
-        timestamp = json_decode(resp.body)['timestamp']
-
         body = {
-            "payload": {
-                "registration_id": TEST_GCM_ID,
-                "timestamp": timestamp
-            },
-            "address": TEST_ADDRESS
+            "registration_id": TEST_GCM_ID
         }
 
-        body['signature'] = sign_payload(data_decoder(FAUCET_PRIVATE_KEY), body['payload'])
+        timestamp = int(time.time())
+        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/gcm/deregister", timestamp, json_encode(body).encode('utf-8'))
 
-        resp = await self.fetch("/gcm/deregister", method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/deregister", method="POST", body=body,
+                                       address=TEST_ADDRESS, timestamp=timestamp, signature=signature)
 
         self.assertEqual(resp.code, 400, resp.body)
 
