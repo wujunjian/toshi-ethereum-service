@@ -385,3 +385,17 @@ Register for Google Cloud Messaging push notifications. This links a token ident
                 }
             ]
         }
+
+# Group Utils
+
+## Timestamp generation [/v1/timestamp]
+
+Used to retrieve a current timestamp from the server for use in signing other requests.
+
+### Get Timestamp [GET]
+
++ Response 200 (application/json)
+
+        {
+            "timestamp": 1481291348
+        }
