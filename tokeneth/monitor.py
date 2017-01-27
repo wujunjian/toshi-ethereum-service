@@ -208,7 +208,7 @@ class BlockMonitor:
         message = payment.render()
 
         try:
-            return self.gcm_pushclient.send(gcm_id, {"data": {"message": message}})
+            return self.gcm_pushclient.send(gcm_id, {"message": message})
         except Exception:
             # TODO: think about adding retrying functionality in here
             log.exception()

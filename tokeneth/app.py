@@ -4,7 +4,7 @@ import os
 from . import handlers
 from .monitor import BlockMonitor
 
-from tokenservices.push import PushServerClient
+from tokenservices.push import PushServerClient, GCMHttpPushClient
 from tokenservices.handlers import GenerateTimestamp
 
 urls = [
@@ -27,14 +27,15 @@ class Application(asyncbb.web.Application):
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
-        if 'pushserver' not in config:
-            config['pushserver'] = {}
         if 'PUSH_URL' in os.environ:
-            config['pushserver']['url'] = os.environ['PUSH_URL']
+            config.setdefault('pushserver')['url'] = os.environ['PUSH_URL']
         if 'PUSH_PASSWORD' in os.environ:
-            config['pushserver']['password'] = os.environ['PUSH_PASSWORD']
+            config.setdefault('pushserver')['password'] = os.environ['PUSH_PASSWORD']
         if 'PUSH_USERNAME' in os.environ:
-            config['pushserver']['username'] = os.environ['PUSH_USERNAME']
+            config.setdefault('pushserver')['username'] = os.environ['PUSH_USERNAME']
+
+        if 'GCM_SERVER_KEY' in os.environ:
+            config.setdefault('gcm', {})['server_key'] = os.environ['GCM_SERVER_KEY']
 
         return config
 
@@ -42,11 +43,14 @@ class Application(asyncbb.web.Application):
 def main():
 
     app = Application(urls)
-    if 'pushserver' in app.config and 'url' in app.config['pushserver'] and app.config['pushserver']['url'] is not None:
-        gcm_pushclient = PushServerClient(url=app.config['pushserver']['url'],
-                                          username=app.config['pushserver'].get('username'),
-                                          password=app.config['pushserver'].get('password'))
-    else:
-        gcm_pushclient = None
-    app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], gcm_pushclient=gcm_pushclient)
+    if 'ethereum' in app.config and 'url' in app.config['ethereum'] and app.config['ethereum']['url'] is not None:
+        if 'gcm' in app.config and 'server_key' in app.config['gcm'] and app.config['gcm']['server_key'] is not None:
+            gcm_pushclient = GCMHttpPushClient(app.config['gcm']['server_key'])
+        elif 'pushserver' in app.config and 'url' in app.config['pushserver'] and app.config['pushserver']['url'] is not None:
+            gcm_pushclient = PushServerClient(url=app.config['pushserver']['url'],
+                                              username=app.config['pushserver'].get('username'),
+                                              password=app.config['pushserver'].get('password'))
+        else:
+            gcm_pushclient = None
+        app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], gcm_pushclient=gcm_pushclient)
     app.start()

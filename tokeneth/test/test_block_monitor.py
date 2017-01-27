@@ -39,16 +39,12 @@ class MockPushClient:
     def __init__(self):
         self.send_queue = asyncio.Queue()
 
-    async def send(self, token, payload):
+    async def send(self, token, data):
 
-        if "data" not in payload:
-            raise NotImplementedError("Only data packets are supported")
-
-        data = payload['data']
         if len(data) > 1 or 'message' not in data:
             raise NotImplementedError("Only data key allowed is 'message'")
 
-        self.send_queue.put_nowait((token, payload))
+        self.send_queue.put_nowait((token, data))
 
 class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
@@ -168,7 +164,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
             self.assertEqual(token, TEST_GCM_ID)
 
-            message = parse_sofa_message(payload['data']['message'])
+            message = parse_sofa_message(payload['message'])
 
             self.assertIsInstance(message, SofaPayment)
             self.assertEqual(message['value'], hex(value))
@@ -181,6 +177,8 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             unconfirmed_count += 1
             if unconfirmed_count > 1:
                 warnings.warn("got more than one unconfirmed notification for a single transaction")
+
+        await self._app.monitor.shutdown()
 
     @gen_test(timeout=30)
     @requires_database
@@ -224,7 +222,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
             self.assertTrue(token in (TEST_GCM_ID, TEST_GCM_ID_2))
 
-            message = parse_sofa_message(payload['data']['message'])
+            message = parse_sofa_message(payload['message'])
 
             self.assertIsInstance(message, SofaPayment)
             self.assertEqual(message['value'], hex(value))
@@ -237,3 +235,5 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             unconfirmed_counts[token] += 1
             if unconfirmed_counts[token] > 1:
                 warnings.warn("got more than one unconfirmed notification for a single device")
+
+        await self._app.monitor.shutdown()
