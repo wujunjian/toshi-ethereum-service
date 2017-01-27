@@ -42,14 +42,27 @@ class BlockMonitor:
 
         # NOTE: filters timeout if eth_getFilterChanges is not used for some time
         # so there's no need to worry about removing them
-        self._new_pending_transaction_filter_id = await self.eth.eth_newPendingTransactionFilter()
-        self._new_block_filter_id = await self.eth.eth_newBlockFilter()
+        try:
+            self._new_pending_transaction_filter_id = await self.eth.eth_newPendingTransactionFilter()
+            log.info("Listening for new pending transactions")
+        except:
+            self._new_pending_transaction_filter_id = None
+            log.exception("Error registering for new pending transactions")
+        try:
+            self._new_block_filter_id = await self.eth.eth_newBlockFilter()
+            log.info("Listening for new blocks")
+        except:
+            self._new_block_filter_id = None
+            log.exception("Error registering for new blocks")
 
         # list of callbacks for transaction notifications
         # form is {token_id: [method, ...], ...}
         self.callbacks = {}
 
-        self.schedule_filter_poll()
+        if self._new_block_filter_id is None and self._new_pending_transaction_filter_id:
+            log.warning("Not starting monitor as filter registrations failed")
+        else:
+            self.schedule_filter_poll()
 
     def schedule_block_check(self, delay=DEFAULT_BLOCK_CHECK_DELAY):
 
@@ -99,10 +112,11 @@ class BlockMonitor:
         self._filter_poll_process = asyncio.Future()
         if not self._shutdown:
 
-            # get the list of new pending transactions
-            new_pending_transactions = await self.eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
-            # add any to the list of unprocessed transactions
-            self.unmatched_transactions.update({tx_hash: 0 for tx_hash in new_pending_transactions})
+            if self._new_pending_transaction_filter_id is not None:
+                # get the list of new pending transactions
+                new_pending_transactions = await self.eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
+                # add any to the list of unprocessed transactions
+                self.unmatched_transactions.update({tx_hash: 0 for tx_hash in new_pending_transactions})
 
         # go through all the unmatched transactions that have no match
         for tx_hash, age in list(self.unmatched_transactions.items()):
@@ -131,9 +145,10 @@ class BlockMonitor:
 
         if not self._shutdown:
 
-            new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
-            if new_blocks and not self._shutdown:
-                self.schedule_block_check()
+            if self._new_block_filter_id is not None:
+                new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
+                if new_blocks and not self._shutdown:
+                    self.schedule_block_check()
 
         self._filter_poll_process.set_result(True)
         self._filter_poll_process = None
@@ -199,7 +214,10 @@ class BlockMonitor:
         # TODO: format transaction and send APN
         pass
 
-    def send_gcm(self, gcm_id, transaction, sender_token_id):
+    async def send_gcm(self, gcm_id, transaction, sender_token_id):
+        if self.gcm_pushclient is None:
+            return
+
         if transaction['blockNumber'] is None:
             status = "unconfirmed"
         else:
@@ -208,7 +226,7 @@ class BlockMonitor:
         message = payment.render()
 
         try:
-            return self.gcm_pushclient.send(gcm_id, {"message": message})
+            return await self.gcm_pushclient.send(gcm_id, {"message": message})
         except Exception:
             # TODO: think about adding retrying functionality in here
             log.exception("failed to send Push Notification")
