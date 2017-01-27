@@ -211,7 +211,7 @@ class BlockMonitor:
             return self.gcm_pushclient.send(gcm_id, {"message": message})
         except Exception:
             # TODO: think about adding retrying functionality in here
-            log.exception()
+            log.exception("failed to send Push Notification")
 
     def register(self, token_id, callback):
         """Registers a callback to receive transaction notifications for the
