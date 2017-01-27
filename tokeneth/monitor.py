@@ -1,15 +1,20 @@
 import asyncio
 from tornado.ioloop import IOLoop
 from asyncbb.ethereum.client import JsonRPCClient
+from tokenbrowser.sofa import SofaPayment
+from asyncbb.log import logging
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 5
 
+log = logging.getLogger("tokeneth.monitor")
+
 class BlockMonitor:
 
-    def __init__(self, pool, url, ioloop=None):
+    def __init__(self, pool, url, gcm_pushclient=None, ioloop=None):
         self.pool = pool
         self.eth = JsonRPCClient(url)
+        self.gcm_pushclient = gcm_pushclient
 
         if ioloop is None:
             ioloop = IOLoop.current()
@@ -171,44 +176,42 @@ class BlockMonitor:
         else:
             sender_token_id = None
 
-        # for each token_id involved, see if there are any callback methods
-        # registered, and if so, use those, otherwise fallback on push notifications
+        # for each token_id involved, see if they are registered for push notifications
 
-        # TODO: this doesn't currently take into account multiple clients for
-        # the same token_id, such that if one client would be connected via a
-        # websocket and others from the same token_id would need to receive these
-        # notifications via PNs, then with the method below this wont work.
-        # Some extra consideration in how to be aware of multiple clients per
-        # token_id and how to identify which are connected via websockets and
-        # which are not will have to be made.
+        for row in token_ids:
+            token_id = row['token_id']
+            # check PN registrations for the token_id
+            async with self.pool.acquire() as con:
+                # apn
+                apn_ids = await con.fetch("SELECT apn_id FROM apn_registrations WHERE token_id = $1", token_id)
+                # gcm
+                gcm_ids = await con.fetch("SELECT gcm_id FROM gcm_registrations WHERE token_id = $1", token_id)
 
-        for token_id in token_ids:
-            if token_id in self.callbacks and len(self.callbacks) > 0:
-                for callback in self.callbacks[token_id]:
-                    callback(transaction, sender_token_id)
-            else:
-                # check PN registrations for the token_id
-                async with self.pool.acquire() as con:
-                    # apn
-                    apn_ids = await con.fetch("SELECT api_id FROM apn_registrations WHERE token_id = $1", token_id)
-                    # gcm
-                    gcm_ids = await con.fetch("SELECT gcm_id FROM gcm_registrations WHERE token_id = $1", token_id)
+            for row in apn_ids:
 
-                for row in apn_ids:
+                await self.send_apn(row['apn_id'], transaction, sender_token_id)
 
-                    self.send_apn(row['apn_id'], transaction, sender_token_id)
+            for row in gcm_ids:
 
-                for row in gcm_ids:
-
-                    self.send_gcm(row['gcm_id'], transaction, sender_token_id)
+                await self.send_gcm(row['gcm_id'], transaction, sender_token_id)
 
     def send_apn(self, apn_id, transaction, sender_token_id):
         # TODO: format transaction and send APN
         pass
 
     def send_gcm(self, gcm_id, transaction, sender_token_id):
-        # TODO: format transaction and send GCM PN
-        pass
+        if transaction['blockNumber'] is None:
+            status = "unconfirmed"
+        else:
+            status = "confirmed"
+        payment = SofaPayment(value=transaction['value'], txHash=transaction['hash'], status=status)
+        message = payment.render()
+
+        try:
+            return self.gcm_pushclient.send(gcm_id, {"data": {"message": message}})
+        except Exception:
+            # TODO: think about adding retrying functionality in here
+            log.exception()
 
     def register(self, token_id, callback):
         """Registers a callback to receive transaction notifications for the

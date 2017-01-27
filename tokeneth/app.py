@@ -4,6 +4,7 @@ import os
 from . import handlers
 from .monitor import BlockMonitor
 
+from tokenservices.push import PushServerClient
 from tokenservices.handlers import GenerateTimestamp
 
 urls = [
@@ -26,11 +27,26 @@ class Application(asyncbb.web.Application):
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
+        if 'pushserver' not in config:
+            config['pushserver'] = {}
+        if 'PUSH_URL' in os.environ:
+            config['pushserver']['url'] = os.environ['PUSH_URL']
+        if 'PUSH_PASSWORD' in os.environ:
+            config['pushserver']['password'] = os.environ['PUSH_PASSWORD']
+        if 'PUSH_USERNAME' in os.environ:
+            config['pushserver']['username'] = os.environ['PUSH_USERNAME']
+
         return config
 
 
 def main():
 
     app = Application(urls)
-    app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'])
+    if 'pushserver' in app.config and 'url' in app.config['pushserver'] and app.config['pushserver']['url'] is not None:
+        gcm_pushclient = PushServerClient(url=app.config['pushserver']['url'],
+                                          username=app.config['pushserver'].get('username'),
+                                          password=app.config['pushserver'].get('password'))
+    else:
+        gcm_pushclient = None
+    app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], gcm_pushclient=gcm_pushclient)
     app.start()
