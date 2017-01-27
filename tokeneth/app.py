@@ -28,11 +28,11 @@ class Application(asyncbb.web.Application):
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
         if 'PUSH_URL' in os.environ:
-            config.setdefault('pushserver')['url'] = os.environ['PUSH_URL']
+            config.setdefault('pushserver', {})['url'] = os.environ['PUSH_URL']
         if 'PUSH_PASSWORD' in os.environ:
-            config.setdefault('pushserver')['password'] = os.environ['PUSH_PASSWORD']
+            config.setdefault('pushserver', {})['password'] = os.environ['PUSH_PASSWORD']
         if 'PUSH_USERNAME' in os.environ:
-            config.setdefault('pushserver')['username'] = os.environ['PUSH_USERNAME']
+            config.setdefault('pushserver', {})['username'] = os.environ['PUSH_USERNAME']
 
         if 'GCM_SERVER_KEY' in os.environ:
             config.setdefault('gcm', {})['server_key'] = os.environ['GCM_SERVER_KEY']
