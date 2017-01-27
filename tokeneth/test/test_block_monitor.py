@@ -39,12 +39,12 @@ class MockPushClient:
     def __init__(self):
         self.send_queue = asyncio.Queue()
 
-    async def send(self, token, data):
+    async def send(self, token_id, device_token, data):
 
         if len(data) > 1 or 'message' not in data:
             raise NotImplementedError("Only data key allowed is 'message'")
 
-        self.send_queue.put_nowait((token, data))
+        self.send_queue.put_nowait((device_token, data))
 
 class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
