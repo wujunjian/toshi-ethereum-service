@@ -51,10 +51,11 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
     def get_urls(self):
         return urls
 
-    def get_url(self, url):
-        return "/v1{}".format(url)
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
 
-    @unittest.skip("TODO: figure out issues with this randomly failing")
+    #@unittest.skip("TODO: figure out issues with this randomly failing")
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
@@ -79,7 +80,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
 
-        self.assertEqual(resp.code, 200)
+        self.assertResponseCodeEqual(resp, 200)
 
         body = json_decode(resp.body)
 
@@ -91,7 +92,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
         resp = await self.fetch("/tx", method="POST", body=body)
 
-        self.assertEqual(resp.code, 200, resp.body)
+        self.assertResponseCodeEqual(resp, 200, resp.body)
 
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
