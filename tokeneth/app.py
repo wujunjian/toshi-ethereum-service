@@ -46,13 +46,12 @@ def main():
     app = Application(urls)
     if 'ethereum' in app.config and 'url' in app.config['ethereum'] and app.config['ethereum']['url'] is not None:
         if 'gcm' in app.config and 'server_key' in app.config['gcm'] and app.config['gcm']['server_key'] is not None:
-            gcm_pushclient = GCMHttpPushClient(app.config['gcm']['server_key'])
+            pushclient = GCMHttpPushClient(app.config['gcm']['server_key'])
         elif 'pushserver' in app.config and 'url' in app.config['pushserver'] and app.config['pushserver']['url'] is not None:
-            gcm_pushclient = PushServerClient(url=app.config['pushserver']['url'],
-                                              username=app.config['pushserver'].get('username'),
-                                              password=app.config['pushserver'].get('password'),
-                                              gcm=True)
+            pushclient = PushServerClient(url=app.config['pushserver']['url'],
+                                          username=app.config['pushserver'].get('username'),
+                                          password=app.config['pushserver'].get('password'))
         else:
-            gcm_pushclient = None
-        app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], gcm_pushclient=gcm_pushclient)
+            pushclient = None
+        app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], pushclient=pushclient)
     app.start()

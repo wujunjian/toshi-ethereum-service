@@ -11,10 +11,10 @@ log = logging.getLogger("tokeneth.monitor")
 
 class BlockMonitor:
 
-    def __init__(self, pool, url, gcm_pushclient=None, ioloop=None):
+    def __init__(self, pool, url, pushclient=None, ioloop=None):
         self.pool = pool
         self.eth = JsonRPCClient(url)
-        self.gcm_pushclient = gcm_pushclient
+        self.pushclient = pushclient
 
         if ioloop is None:
             ioloop = IOLoop.current()
@@ -198,25 +198,14 @@ class BlockMonitor:
             target_token_id = row['eth_address']
             # check PN registrations for the token_id
             async with self.pool.acquire() as con:
-                # apn
-                apn_ids = await con.fetch("SELECT apn_id FROM apn_registrations WHERE token_id = $1", token_id)
-                # gcm
-                gcm_ids = await con.fetch("SELECT gcm_id FROM gcm_registrations WHERE token_id = $1", token_id)
+                pn_registrations = await con.fetch("SELECT service, registration_id FROM push_notification_registrations WHERE token_id = $1", token_id)
 
-            for row in apn_ids:
+            for row in pn_registrations:
 
-                await self.send_apn(row['apn_id'], transaction, target_token_id, sender_token_id)
+                await self.send_push_notification(row['service'], row['registration_id'], transaction, target_token_id, sender_token_id)
 
-            for row in gcm_ids:
-
-                await self.send_gcm(row['gcm_id'], transaction, target_token_id, sender_token_id)
-
-    def send_apn(self, apn_id, transaction, target_token_id, sender_token_id):
-        # TODO: format transaction and send APN
-        pass
-
-    async def send_gcm(self, gcm_id, transaction, target_token_id, sender_token_id):
-        if self.gcm_pushclient is None:
+    async def send_push_notification(self, push_service, registration_id, transaction, target_token_id, sender_token_id):
+        if self.pushclient is None:
             return
 
         if transaction['blockNumber'] is None:
@@ -227,7 +216,7 @@ class BlockMonitor:
         message = payment.render()
 
         try:
-            return await self.gcm_pushclient.send(target_token_id, gcm_id, {"message": message})
+            return await self.pushclient.send(target_token_id, push_service, registration_id, {"message": message})
         except Exception:
             # TODO: think about adding retrying functionality in here
             log.exception("failed to send Push Notification")

@@ -39,7 +39,7 @@ class MockPushClient:
     def __init__(self):
         self.send_queue = asyncio.Queue()
 
-    async def send(self, token_id, device_token, data):
+    async def send(self, token_id, network, device_token, data):
 
         if len(data) > 1 or 'message' not in data:
             raise NotImplementedError("Only data key allowed is 'message'")
@@ -55,7 +55,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
         path = "/v1{}".format(path)
         return super().get_url(path)
 
-    #@unittest.skip("TODO: figure out issues with this randomly failing")
+    @unittest.skip("TODO: figure out issues with this randomly failing")
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
@@ -125,7 +125,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
         app = self._app
         self.mockpushclient = MockPushClient()
         monitor = tokeneth.monitor.BlockMonitor(app.connection_pool, app.config['ethereum']['url'],
-                                                gcm_pushclient=self.mockpushclient)
+                                                pushclient=self.mockpushclient)
         app.monitor = monitor
         return app
 
@@ -145,7 +145,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
         self.assertResponseCodeEqual(resp, 204, resp.body)
 
         async with self.pool.acquire() as con:
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
 
@@ -203,7 +203,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
         self.assertResponseCodeEqual(resp, 204, resp.body)
 
         async with self.pool.acquire() as con:
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 2)
 

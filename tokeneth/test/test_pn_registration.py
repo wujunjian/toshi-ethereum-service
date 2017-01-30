@@ -21,7 +21,7 @@ TEST_GCM_ID = "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
 TEST_APN_ID_2 = "a952655fb6688289ea7f81f9b21667e2a156cf651dcabf69c7878abfc4cb7bd0"
 TEST_GCM_ID_2 = "a952655fb6688289ea7f81f9b21667e2a156cf651dcabf69c7878abfc4cb7bd0"
 
-class APNRegistrationTest(AsyncHandlerTest):
+class PNRegistrationTest(AsyncHandlerTest):
 
     def get_urls(self):
         return urls
@@ -44,7 +44,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
@@ -67,7 +67,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 0)
@@ -81,8 +81,8 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
-                               TEST_APN_ID, TEST_ADDRESS)
+            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2), ('apn', $3, $4)",
+                               TEST_APN_ID, TEST_ADDRESS, TEST_APN_ID_2, TEST_ADDRESS_2)
 
         body = {
             "registration_id": TEST_APN_ID
@@ -94,7 +94,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
@@ -108,7 +108,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2), ($3, $4)",
+            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2), ('apn', $3, $4)",
                                TEST_APN_ID, FAUCET_ADDRESS, TEST_APN_ID_2, TEST_ADDRESS_2)
 
         body = {
@@ -121,11 +121,10 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
-
 
     @gen_test
     @requires_database
@@ -133,20 +132,20 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
-                               TEST_APN_ID, TEST_ADDRESS)
+            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('gcm', $1, $2)",
+                               TEST_GCM_ID, TEST_ADDRESS)
 
         body = {
-            "registration_id": TEST_APN_ID
+            "registration_id": TEST_GCM_ID
         }
 
-        resp = await self.fetch_signed("/apn/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
+        resp = await self.fetch_signed("/gcm/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
 
         self.assertEqual(resp.code, 204, resp.body)
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -167,7 +166,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -177,7 +176,7 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO apn_registrations VALUES ($1, $2)",
+            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2)",
                                TEST_APN_ID, TEST_ADDRESS)
 
         body = {
@@ -192,188 +191,11 @@ class APNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM apn_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
 
-
-class GCMRegistrationTest(AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
-
-    @gen_test
-    @requires_database
-    async def test_register_for_push_notifications(self):
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
-
-    @gen_test
-    @requires_database
-    async def test_invalid_signature_in_pn_registration(self):
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        timestamp = int(time.time())
-        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/gcm/register", timestamp, json_encode(body).encode('utf-8'))
-
-        resp = await self.fetch_signed("/gcm/register", method="POST", body=body,
-                                       address=TEST_ADDRESS, timestamp=timestamp, signature=signature)
-
-        self.assertEqual(resp.code, 400, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 0)
-
-    @gen_test
-    @requires_database
-    async def test_reregister_for_push_notifications(self):
-
-        """tests that registering an address that is already registered
-        simply ignores the new registration attempt"""
-
-        async with self.pool.acquire() as con:
-
-            await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
-                               TEST_GCM_ID, TEST_ADDRESS)
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
-
-    @gen_test
-    @requires_database
-    async def test_replace_previous_push_notification_registration(self):
-
-        """tests that registering an existing registration_id with a new
-        token_id replaces the old token id"""
-
-        async with self.pool.acquire() as con:
-
-            await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2), ($3, $4)",
-                               TEST_GCM_ID, FAUCET_ADDRESS, TEST_GCM_ID_2, TEST_ADDRESS_2)
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
-
-    @gen_test
-    @requires_database
-    async def test_deregister_notifications(self):
-
-        async with self.pool.acquire() as con:
-
-            await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
-                               TEST_GCM_ID, TEST_ADDRESS)
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        resp = await self.fetch_signed("/gcm/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            row = await con.fetchrow("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNone(row)
-
-    @gen_test
-    @requires_database
-    async def test_deregister_notifications_when_not_registered(self):
-
-        """Makes sure that there is no failure when deregistering when the
-        registration id hasn't been registered"""
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        resp = await self.fetch_signed("/gcm/deregister", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            row = await con.fetchrow("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNone(row)
-
-    @gen_test
-    @requires_database
-    async def test_invalid_signature_in_deregistration(self):
-
-        async with self.pool.acquire() as con:
-
-            await con.fetchrow("INSERT INTO gcm_registrations VALUES ($1, $2)",
-                               TEST_GCM_ID, TEST_ADDRESS)
-
-        body = {
-            "registration_id": TEST_GCM_ID
-        }
-
-        timestamp = int(time.time())
-        signature = sign_request(FAUCET_PRIVATE_KEY, "POST", "/v1/gcm/deregister", timestamp, json_encode(body).encode('utf-8'))
-
-        resp = await self.fetch_signed("/gcm/deregister", method="POST", body=body,
-                                       address=TEST_ADDRESS, timestamp=timestamp, signature=signature)
-
-        self.assertEqual(resp.code, 400, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM gcm_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
 
 class PNRegistrationURLSanityCheckTest(AsyncHandlerTest):
 
