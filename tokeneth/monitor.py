@@ -22,6 +22,9 @@ class BlockMonitor:
 
         self.ioloop.add_callback(self.initialise)
 
+        self._block_checking_process = None
+        self._filter_poll_process = None
+
     async def initialise(self):
         # check what the last block number checked was last time this was started
         async with self.pool.acquire() as con:
@@ -74,6 +77,10 @@ class BlockMonitor:
 
     async def block_check(self):
 
+        if self._block_checking_process is not None:
+            log.warning("Block check is already running")
+            return
+
         self._block_checking_process = asyncio.Future()
 
         while not self._shutdown:
@@ -108,6 +115,10 @@ class BlockMonitor:
         self._block_checking_process = None
 
     async def filter_poll(self):
+
+        if self._filter_poll_process is not None:
+            log.warning("filter polling is already running")
+            return
 
         self._filter_poll_process = asyncio.Future()
         if not self._shutdown:
@@ -147,6 +158,10 @@ class BlockMonitor:
 
             if self._new_block_filter_id is not None:
                 new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
+                # NOTE: this is not very smart, as if the block check is
+                # already running this will cause it to run twice. However,
+                # this is currently taken care of in the block check itself
+                # which should suffice.
                 if new_blocks and not self._shutdown:
                     self.schedule_block_check()
 
