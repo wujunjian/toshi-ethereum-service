@@ -55,16 +55,24 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
         path = "/v1{}".format(path)
         return super().get_url(path)
 
-    @unittest.skip("TODO: figure out issues with this randomly failing")
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
-    @requires_parity
-    async def test_get_block_confirmation(self):
+    @requires_parity(pass_args=True)
+    async def test_get_block_confirmation(self, *, parity, ethminer):
 
         monitor = SimpleBlockMonitor(self._app.connection_pool, self._app.config['ethereum']['url'])
         await asyncio.sleep(0.1)
         self._app.monitor = monitor
+
+        # wrapped in try catch to ensure the monitor is shutdown even
+        # if the test fails
+        try:
+            await self.send_transaction(monitor, ethminer)
+        finally:
+            await monitor.shutdown()
+
+    async def send_transaction(self, monitor, ethminer):
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
         val = 761751855997712
@@ -90,6 +98,12 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
             "tx": tx
         }
 
+        # stop ethminer breifly to ensure we get an unconfirmed transaction
+        # if this isn't done, then there is a chance that the block may be
+        # mined before the unconfirmed transaction is seen meaning only
+        # the confirmed version will be seen.
+        ethminer.pause()
+
         resp = await self.fetch("/tx", method="POST", body=body)
 
         self.assertResponseCodeEqual(resp, 200, resp.body)
@@ -104,13 +118,14 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
             if tx['hash'] == tx_hash:
                 if tx['blockNumber'] is None:
                     got_unconfirmed += 1
+                    # restart ethminer
+                    ethminer.start()
                 else:
                     break
 
         # make sure we got an unconfirmed tx notification
         self.assertEqual(got_unconfirmed, 1)
 
-        await monitor.shutdown()
 
 class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 

@@ -234,10 +234,6 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
                 tx_hash, from_address, to_address, str(tx.value), str(tx.startgas * tx.gasprice), sender_token_id)
             await self.db.commit()
 
-        if hasattr(self.application, 'monitor'):
-            tx = await self.eth.eth_getTransactionByHash(tx_hash)
-            await self.application.monitor.send_transaction_notifications(tx)
-
         self.write({
             "tx_hash": tx_hash
         })
