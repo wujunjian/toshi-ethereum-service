@@ -55,7 +55,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
         path = "/v1{}".format(path)
         return super().get_url(path)
 
-    @gen_test(timeout=30)
+    @gen_test(timeout=60)
     @requires_database
     @requires_redis
     @requires_parity(pass_args=True)
