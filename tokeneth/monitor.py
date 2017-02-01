@@ -22,6 +22,8 @@ class BlockMonitor:
 
         self.ioloop.add_callback(self.initialise)
 
+        self._check_schedule = None
+        self._poll_schedule = None
         self._block_checking_process = None
         self._filter_poll_process = None
 
@@ -174,8 +176,10 @@ class BlockMonitor:
     async def shutdown(self):
 
         self._shutdown = True
-        self.ioloop.remove_timeout(self._check_schedule)
-        self.ioloop.remove_timeout(self._poll_schedule)
+        if self._check_schedule:
+            self.ioloop.remove_timeout(self._check_schedule)
+        if self._poll_schedule:
+            self.ioloop.remove_timeout(self._poll_schedule)
 
         if self._block_checking_process:
             await self._block_checking_process
@@ -190,11 +194,11 @@ class BlockMonitor:
         token_ids = []
         async with self.pool.acquire() as con:
             if to_address:
-                to_ids = await con.fetch("SELECT token_id, eth_address FROM notification_registrations WHERE eth_address = $1", to_address)
-                token_ids.extend(to_ids)
+                to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
+                token_ids.extend([row['token_id'] for row in to_ids])
             if from_address:
-                from_ids = await con.fetch("SELECT token_id, eth_address FROM notification_registrations WHERE eth_address = $1", from_address)
-                token_ids.extend(from_ids)
+                from_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", from_address)
+                token_ids.extend([row['token_id'] for row in from_ids])
 
             db_tx = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1",
                                        transaction['hash'])
@@ -208,16 +212,14 @@ class BlockMonitor:
 
         # for each token_id involved, see if they are registered for push notifications
 
-        for row in token_ids:
-            token_id = row['token_id']
-            target_token_id = row['eth_address']
+        for token_id in token_ids:
             # check PN registrations for the token_id
             async with self.pool.acquire() as con:
                 pn_registrations = await con.fetch("SELECT service, registration_id FROM push_notification_registrations WHERE token_id = $1", token_id)
 
             for row in pn_registrations:
 
-                await self.send_push_notification(row['service'], row['registration_id'], transaction, target_token_id, sender_token_id)
+                await self.send_push_notification(row['service'], row['registration_id'], transaction, token_id, sender_token_id)
 
     async def send_push_notification(self, push_service, registration_id, transaction, target_token_id, sender_token_id):
         if self.pushclient is None:
