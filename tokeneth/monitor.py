@@ -210,8 +210,12 @@ class BlockMonitor:
         else:
             sender_token_id = None
 
-        # for each token_id involved, see if they are registered for push notifications
+        if token_ids:
+            log.info("Sending notifications for tx: {}".format(transaction['hash']))
+        else:
+            return
 
+        # for each token_id involved, see if they are registered for push notifications
         for token_id in token_ids:
             # check PN registrations for the token_id
             async with self.pool.acquire() as con:
@@ -233,6 +237,7 @@ class BlockMonitor:
         message = payment.render()
 
         try:
+            log.info("Sending {} push notification to {} ({})".format(push_service, target_token_id, registration_id))
             return await self.pushclient.send(target_token_id, push_service, registration_id, {"message": message})
         except Exception:
             # TODO: think about adding retrying functionality in here
