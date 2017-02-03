@@ -437,11 +437,11 @@ All the above endpoints can be accessed through a websocket based json-rpc inter
 
 # Group JSON-RPC methods
 
-## `get_balance`
+## Get Balance `get_balance`
 
 Requests the given address's balance.
 
-### Request
+**Request**
 
 ```
 {
@@ -453,7 +453,7 @@ Requests the given address's balance.
 ```
 
 
-### Response
+**Response**
 
 ```
 {
@@ -466,12 +466,11 @@ Requests the given address's balance.
 }
 ```
 
-## `create_transaction_skeleton`
+## Create Transaction Skeleton `create_transaction_skeleton`
 
 Creates an unsigned transaction with the the given arguments, using network defaults for the optional arguments and the network nonce from the given `from` address. Responds with the rlp encoded transaction.
 
-
-### Request
+**Request**
 
 ```
 {
@@ -486,7 +485,7 @@ Creates an unsigned transaction with the the given arguments, using network defa
 }
 ```
 
-### Request
+**Request**
 
 ```
 {
@@ -504,7 +503,7 @@ Creates an unsigned transaction with the the given arguments, using network defa
 }
 ```
 
-### Response
+**Response**
 
 ```
 {
@@ -514,11 +513,11 @@ Creates an unsigned transaction with the the given arguments, using network defa
 }
 ```
 
-## `send_transaction`
+## Send Transaction `send_transaction`
 
 Sends a signed transaction to the network. Responds with the transaction's hash.
 
-### Request
+**Request**
 
 ```
 {
@@ -531,7 +530,7 @@ Sends a signed transaction to the network. Responds with the transaction's hash.
 }
 ```
 
-### Request
+**Request**
 
 ```
 {
@@ -545,7 +544,7 @@ Sends a signed transaction to the network. Responds with the transaction's hash.
 }
 ```
 
-### Response
+**Response**
 
 ```
 {
@@ -593,11 +592,9 @@ e.g.
 - `transaction`: the transaction details (the same as returned by the node, i.e. https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_gettransactionbyhash).
 - `sender_token_id`: the token id address of the user whom sent the transaction (null if the transaction was sent anonymously).
 
-# Subscription methods
+## Subscribe `subscribe`
 
-## `subscribe`
-
-### Request
+**Request**
 
 ```
 {
@@ -608,7 +605,7 @@ e.g.
 }
 ```
 
-### Response
+**Response**
 
 ```
 {
@@ -618,9 +615,9 @@ e.g.
 }
 ```
 
-## `unsubscribe`
+## Unsubscribe `unsubscribe`
 
-### Request
+**Request**
 
 ```
 {
@@ -631,7 +628,7 @@ e.g.
 }
 ```
 
-### Response
+**Response**
 
 ```
 {
@@ -641,9 +638,9 @@ e.g.
 }
 ```
 
-## `list_subscriptions`
+## List Subscriptions `list_subscriptions`
 
-### Request
+**Request**
 
 ```
 {
@@ -653,7 +650,7 @@ e.g.
 }
 ```
 
-### Response
+**Response**
 
 ```
 {
