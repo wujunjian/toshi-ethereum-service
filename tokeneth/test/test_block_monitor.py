@@ -23,6 +23,41 @@ from tokeneth.test.test_transaction import (
 from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
+def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_monitor=False):
+    """Used to ensure all database connections are returned to the pool
+    before finishing the test"""
+
+    def wrap(fn):
+
+        async def wrapper(self, *args, **kwargs):
+
+            if 'ethereum' not in self._app.config:
+                raise Exception("Missing ethereum config from setup")
+
+            self._app.monitor = cls(self._app.connection_pool, self._app.config['ethereum']['url'])
+
+            await self._app.monitor.initialise()
+
+            if pass_monitor:
+                if pass_monitor is True:
+                    kwargs['monitor'] = self._app.monitor
+                else:
+                    kwargs[pass_monitor] = self._app.monitor
+
+            try:
+                f = fn(self, *args, **kwargs)
+                if asyncio.iscoroutine(f):
+                    await f
+            finally:
+                await self._app.monitor.shutdown()
+
+        return wrapper
+
+    if func is not None:
+        return wrap(func)
+    else:
+        return wrap
+
 class SimpleBlockMonitor(tokeneth.monitor.BlockMonitor):
 
     def __init__(self, *args, **kwargs):
@@ -46,6 +81,11 @@ class MockPushClient:
 
         self.send_queue.put_nowait((device_token, data))
 
+class MockPushClientBlockMonitor(tokeneth.monitor.BlockMonitor):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, pushclient=MockPushClient(), **kwargs)
+
 class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
     def get_urls(self):
@@ -59,20 +99,8 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
     @requires_database
     @requires_redis
     @requires_parity(pass_args=True)
-    async def test_get_block_confirmation(self, *, parity, ethminer):
-
-        monitor = SimpleBlockMonitor(self._app.connection_pool, self._app.config['ethereum']['url'])
-        await asyncio.sleep(0.1)
-        self._app.monitor = monitor
-
-        # wrapped in try catch to ensure the monitor is shutdown even
-        # if the test fails
-        try:
-            await self.send_transaction(monitor, ethminer)
-        finally:
-            await monitor.shutdown()
-
-    async def send_transaction(self, monitor, ethminer):
+    @requires_block_monitor(cls=SimpleBlockMonitor, pass_monitor=True)
+    async def test_get_block_confirmation(self, *, parity, ethminer, monitor):
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
         val = 761751855997712
@@ -88,7 +116,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
 
-        self.assertResponseCodeEqual(resp, 200)
+        self.assertResponseCodeEqual(resp, 200, resp.body)
 
         body = json_decode(resp.body)
 
@@ -136,21 +164,12 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
         path = "/v1{}".format(path)
         return super().get_url(path)
 
-    def config_monitor(self):
-        app = self._app
-        self.mockpushclient = MockPushClient()
-        monitor = tokeneth.monitor.BlockMonitor(app.connection_pool, app.config['ethereum']['url'],
-                                                pushclient=self.mockpushclient)
-        app.monitor = monitor
-        return app
-
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
     @requires_parity
-    async def test_get_single_push_notification(self):
-
-        self.config_monitor()
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_get_single_push_notification(self, *, monitor):
 
         # register for GCM PNs
         body = {
@@ -176,7 +195,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
         unconfirmed_count = 0
         while True:
-            token, payload = await self.mockpushclient.send_queue.get()
+            token, payload = await monitor.pushclient.send_queue.get()
 
             self.assertEqual(token, TEST_GCM_ID)
 
@@ -194,15 +213,12 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             if unconfirmed_count > 1:
                 warnings.warn("got more than one unconfirmed notification for a single transaction")
 
-        await self._app.monitor.shutdown()
-
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
     @requires_parity
-    async def test_get_multiple_push_notification(self):
-
-        self.config_monitor()
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_get_multiple_push_notification(self, *, monitor):
 
         # register for GCM PNs
         body = {
@@ -234,7 +250,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
         unconfirmed_counts = {TEST_GCM_ID: 0, TEST_GCM_ID_2: 0}
         while True:
-            token, payload = await self.mockpushclient.send_queue.get()
+            token, payload = await monitor.pushclient.send_queue.get()
 
             self.assertTrue(token in (TEST_GCM_ID, TEST_GCM_ID_2))
 
@@ -251,5 +267,3 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             unconfirmed_counts[token] += 1
             if unconfirmed_counts[token] > 1:
                 warnings.warn("got more than one unconfirmed notification for a single device")
-
-        await self._app.monitor.shutdown()

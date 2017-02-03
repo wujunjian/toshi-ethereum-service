@@ -32,10 +32,10 @@ class TransactionTest(AsyncHandlerTest):
             resp = await self.fetch("/tx/{}".format(tx_hash))
             self.assertEqual(resp.code, 200)
             body = json_decode(resp.body)
-            if body['tx'] is None or body['tx']['blockNumber'] is None:
+            if body is None or body['blockNumber'] is None:
                 await asyncio.sleep(1)
             else:
-                return body['tx']
+                return body
 
     @gen_test(timeout=30)
     @requires_database

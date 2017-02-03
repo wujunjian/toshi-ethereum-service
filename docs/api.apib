@@ -40,14 +40,6 @@ so it is important that the same address is used to sign the returned skeleton.
 + Response 200 (application/json)
 
         {
-            "tx_data": {
-                "nonce": "0x100000",
-                "to": "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf",
-                "from": "0xde3d2d9dd52ea80f7799ef4791063a5458d13913",
-                "value": "0x02540be400",
-                "startGas": "0x5208",
-                "gasPrice": "0x04a817c800"
-            },
             "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
         }
 
@@ -65,6 +57,7 @@ This has two different options. It either accepts the same transaction hash retu
         }
 
 + Request (application/json)
+
         {
             "tx": "0xf86f831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a7640000801ca009dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e3a02a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b80"
 
@@ -125,27 +118,30 @@ Returns the details of a transaction.
 + Response 200 (application/json)
 
         {
-            "tx": {
-                "transactionIndex": "0x00",
-                "raw": "0xf86c831000008504a817c80082520894056db290f8ba3250ca64a45d16284d04bc6f5fbf8502540be400801ca0114655db4898a6580f0abfc53fc0c0a88110724abf8d41f2abf206c69d7d4c82a01ed2cdf6939484ef6aebc39ce5662363b82140106bbc374a0f1381b6948214b0",
-                "input": "0x",
-                "nonce": "0x100000",
-                "gas": "0x5208",
-                "blockHash": "0xfc6e2a636c945fb3eade5d180e99bc1969480b522c2dde5727677dbac9594863",
-                "value": "0x02540be400",
-                "gasPrice": "0x04a817c800",
-                "creates": None,
-                "blockNumber": "0x01",
-                "to": "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf",
-                "from": "0xde3d2d9dd52ea80f7799ef4791063a5458d13913",
-                "hash": "0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c"
-            }
+            "transactionIndex": "0x00",
+            "raw": "0xf86c831000008504a817c80082520894056db290f8ba3250ca64a45d16284d04bc6f5fbf8502540be400801ca0114655db4898a6580f0abfc53fc0c0a88110724abf8d41f2abf206c69d7d4c82a01ed2cdf6939484ef6aebc39ce5662363b82140106bbc374a0f1381b6948214b0",
+            "input": "0x",
+            "nonce": "0x100000",
+            "gas": "0x5208",
+            "blockHash": "0xfc6e2a636c945fb3eade5d180e99bc1969480b522c2dde5727677dbac9594863",
+            "value": "0x02540be400",
+            "gasPrice": "0x04a817c800",
+            "creates": None,
+            "blockNumber": "0x01",
+            "to": "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf",
+            "from": "0xde3d2d9dd52ea80f7799ef4791063a5458d13913",
+            "hash": "0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c"
         }
 
 + Response 404 (application/json)
 
         {
-            "tx": null
+            "errors": [
+                {
+                    "id": "not_found",
+                    "message": "Not Found"
+                }
+            ]
         }
 
 ## Get Address Balance [/v1/balance/{address}]
@@ -276,6 +272,25 @@ Removes the given addresses from the list of addresses that the user will receiv
             ]
         }
 
+## List addresses registered for transaction notifications [/v1/subscriptions]
+
+### List subscriptions [GET]
+
++ Request (application/json)
+
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
++ Response 200 (application/json)
+
+        {
+            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
+        }
+
+
 ## Register for apple push notifications [/v1/apn/register]
 
 ### APN Registration [POST]
@@ -399,3 +414,251 @@ Used to retrieve a current timestamp from the server for use in signing other re
         {
             "timestamp": 1481291348
         }
+
+# Group Websocket connections
+
+All the above endpoints can be accessed through a websocket based json-rpc interface.
+
+## Connect to websocket [/v1/ws]
+
+### Connect [GET]
+
++ Request
+
+    + Headers
+
+        Upgrade: websocket
+        Connection: Upgrade
+        Sec-WebSocket-Key: YcwVhryr7tewuz3a7XAs8Q==
+        Sec-WebSocket-Version: 13
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+# Group JSON-RPC methods
+
+## `get_balance`
+
+Requests the given address's balance.
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "get_balance",
+    "params": ["0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"]
+}
+```
+
+
+### Response
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+         "confirmed_balance": "0x2b4cf2cc8a310",
+         "unconfirmed_balance": "0x2b4cf2cc8a310"
+    }
+}
+```
+
+## `create_transaction_skeleton`
+
+Creates an unsigned transaction with the the given arguments, using network defaults for the optional arguments and the network nonce from the given `from` address. Responds with the rlp encoded transaction.
+
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "create_transaction_skeleton",
+    "params": {
+        "from": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+        "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
+        "value": 1000000000000000000
+    }
+}
+```
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "create_transaction_skeleton",
+    "params": {
+        "from": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+        "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d"
+        "gas": 21000,
+        "gasPrice": 20000000000,
+        "nonce": "0x10000",
+        "value": 1000000000000000000
+    }
+}
+```
+
+### Response
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": ["0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"]
+}
+```
+
+## `send_transaction`
+
+Sends a signed transaction to the network. Responds with the transaction's hash.
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "send_transaction",
+    "params": {
+        "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080"
+    }
+}
+```
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "send_transaction",
+    "params": {
+        "tx": "0xec831002e88504a817c80082520894db089a4f9a8c5f17040b4fc51647e942b5fc601d880de0b6b3a764000080",
+        "signature": "0x09dd3b801d027a8e3b53b2f7d5b6753e5cd785c08d2d5bea41ed6226bddca9e32a5a35544647c1f9441ea888fa41dac20fc9db0805a1f94f3124a3e132eb7b8001"
+    }
+}
+```
+
+### Response
+
+```
+{
+   "jsonrpc": "2.0",
+    "id": 1,
+    "result": ["0xfde977a1ebd89cb3d0f17ce85efedca087788ddb50576c9b976c46f2eba21465"]
+}
+```
+
+# Transaction Subscriptions
+
+Similar to the registrations for push notifications for new transactions sent to/from an address.
+
+The core difference being that the subscriptions made during the lifetime of the websocket only exists until the websocket is closed. Upon reconnection, a websocket client needs to re-subscribe for any addresses it's interested in.
+
+Notifications are sent as JSON-RPC notifications with the method `subscriptions`.
+
+e.g.
+
+```
+{
+    "jsonrpc": "2.0",
+    "method": "subscription",
+    "params": {
+        "subscription": "0x85h43d8a49eeb85d32cf465507dd71d507100c1",
+        "transaction": {
+            "hash": "0xc6ef2fc5426d6ad6fd9e2a26abeab0aa2411b7ab17f30a99d3cb96aed1d1055b",
+            "nonce": "0x",
+            "blockHash": "0xbeab0aa2411b7ab17f30a99d3cb9c6ef2fc5426d6ad6fd9e2a26a6aed1d1055b",
+            "blockNumber": "0x15df",
+            "transactionIndex": "0x1",
+            "from": "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+            "to": "0x85h43d8a49eeb85d32cf465507dd71d507100c1",
+            "value": "0x7f110"
+            "gas": "0x7f110"
+            "gasPrice": "0x09184e72a000",
+            "input": "0x603880600c6000396000f300603880600c6000396000f3603880600c6000396000f360",
+        },
+        "sender_token_id": "0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"
+    }
+}
+```
+
+- `subscription`: the subscribed address for which this notification was generated.
+- `transaction`: the transaction details (the same as returned by the node, i.e. https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_gettransactionbyhash).
+- `sender_token_id`: the token id address of the user whom sent the transaction (null if the transaction was sent anonymously).
+
+# Subscription methods
+
+## `subscribe`
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "subscribe",
+    "params": ["0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"]
+}
+```
+
+### Response
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": true
+}
+```
+
+## `unsubscribe`
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "unsubscribe",
+    "params": ["0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"]
+}
+```
+
+### Response
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": true
+}
+```
+
+## `list_subscriptions`
+
+### Request
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "list_subscriptions"
+}
+```
+
+### Response
+
+```
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": ["0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"]
+}
+```

@@ -2,16 +2,12 @@ import asyncbb.web
 import os
 
 from . import handlers
-from .monitor import BlockMonitor, log as monitor_log
-
-from tornado.log import app_log, access_log, gen_log
+from .monitor import BlockMonitor
+from . import websocket
 
 from tokenservices.push import PushServerClient, GCMHttpPushClient
 from tokenservices.handlers import GenerateTimestamp
 from configparser import SectionProxy
-
-from asyncbb.log import SlackLogHandler
-from tokenservices.log import log
 
 urls = [
     (r"^/v1/tx/skel/?$", handlers.TransactionSkeletonHandler),
@@ -21,8 +17,10 @@ urls = [
     (r"^/v1/timestamp/?$", GenerateTimestamp),
     (r"^/v1/register/?$", handlers.TransactionNotificationRegistrationHandler),
     (r"^/v1/deregister/?$", handlers.TransactionNotificationDeregistrationHandler),
+    (r"^/v1/subscriptions/?$", handlers.SubscriptionListHandler),
     (r"^/v1/(apn|gcm)/register/?$", handlers.PNRegistrationHandler),
-    (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler)
+    (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
+    (r"^/v1/ws/?$", websocket.WebsocketHandler)
 ]
 
 class Application(asyncbb.web.Application):
@@ -42,14 +40,6 @@ class Application(asyncbb.web.Application):
 
         if 'GCM_SERVER_KEY' in os.environ:
             config.setdefault('gcm', SectionProxy(config, 'gcm'))['server_key'] = os.environ['GCM_SERVER_KEY']
-
-        if 'SLACK_LOG_URL' in os.environ:
-            handler = SlackLogHandler({'default': os.environ['SLACK_LOG_URL']})
-            log.addHandler(handler)
-            monitor_log.addHandler(handler)
-            app_log.addHandler(handler)
-            gen_log.addHandler(handler)
-            access_log.addHandler(handler)
 
         return config
 

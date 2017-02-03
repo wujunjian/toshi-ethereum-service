@@ -3,13 +3,16 @@ from tornado.ioloop import IOLoop
 from asyncbb.ethereum.client import JsonRPCClient
 from tokenbrowser.sofa import SofaPayment
 from asyncbb.log import logging
+from asyncbb.database import DatabaseMixin
+
+from .handlers import BalanceMixin
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 5
 
 log = logging.getLogger("tokeneth.monitor")
 
-class BlockMonitor:
+class BlockMonitor(DatabaseMixin, BalanceMixin):
 
     def __init__(self, pool, url, pushclient=None, ioloop=None):
         self.pool = pool
@@ -20,14 +23,18 @@ class BlockMonitor:
             ioloop = IOLoop.current()
         self.ioloop = ioloop
 
-        self.ioloop.add_callback(self.initialise)
+        self._startup_future = asyncio.Future()
+        self.ioloop.add_callback(self._initialise)
 
         self._check_schedule = None
         self._poll_schedule = None
         self._block_checking_process = None
         self._filter_poll_process = None
 
-    async def initialise(self):
+    def initialise(self):
+        return self._startup_future
+
+    async def _initialise(self):
         # check what the last block number checked was last time this was started
         async with self.pool.acquire() as con:
             row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
@@ -68,6 +75,8 @@ class BlockMonitor:
             log.warning("Not starting monitor as filter registrations failed")
         else:
             self.schedule_filter_poll()
+
+        self._startup_future.set_result(True)
 
     def schedule_block_check(self, delay=DEFAULT_BLOCK_CHECK_DELAY):
 
@@ -195,10 +204,12 @@ class BlockMonitor:
         async with self.pool.acquire() as con:
             if to_address:
                 to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
-                token_ids.extend([row['token_id'] for row in to_ids])
+                to_ids = [row['token_id'] for row in to_ids]
+                token_ids.extend(to_ids)
             if from_address:
                 from_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", from_address)
-                token_ids.extend([row['token_id'] for row in from_ids])
+                from_ids = [row['token_id'] for row in from_ids]
+                token_ids.extend(from_ids)
 
             db_tx = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1",
                                        transaction['hash'])
@@ -210,10 +221,12 @@ class BlockMonitor:
         else:
             sender_token_id = None
 
-        if token_ids:
-            log.info("Sending notifications for tx: {}".format(transaction['hash']))
-        else:
-            return
+        # check websockets listening to addresses
+        for subscription_id in [to_address, from_address]:
+            if subscription_id in self.callbacks:
+                log.info("Sending tx via websocket subscription: {}".format(subscription_id))
+                for callback in self.callbacks[subscription_id]:
+                    callback(subscription_id, transaction, sender_token_id)
 
         # for each token_id involved, see if they are registered for push notifications
         for token_id in token_ids:
@@ -229,11 +242,7 @@ class BlockMonitor:
         if self.pushclient is None:
             return
 
-        if transaction['blockNumber'] is None:
-            status = "unconfirmed"
-        else:
-            status = "confirmed"
-        payment = SofaPayment(value=transaction['value'], txHash=transaction['hash'], status=status)
+        payment = SofaPayment.from_transaction(transaction)
         message = payment.render()
 
         try:
@@ -243,16 +252,18 @@ class BlockMonitor:
             # TODO: think about adding retrying functionality in here
             log.exception("failed to send Push Notification")
 
-    def register(self, token_id, callback):
+    def subscribe(self, eth_address, callback):
         """Registers a callback to receive transaction notifications for the
         given token identifier.
 
         The callback must accept 2 parameters, the transaction dict, and the
         sender's token identifier"""
-        callbacks = self.callbacks.setdefault(token_id, [])
+        callbacks = self.callbacks.setdefault(eth_address, [])
         if callback not in callbacks:
             callbacks.append(callback)
 
-    def deregister(self, token_id, callback):
-        if token_id in self.callbacks and callback in self.callbacks[token_id]:
-            self.callbacks[token_id].remove(callback)
+    def unsubscribe(self, eth_address, callback):
+        if eth_address in self.callbacks and callback in self.callbacks[eth_address]:
+            self.callbacks[eth_address].remove(callback)
+            if not self.callbacks[eth_address]:
+                self.callbacks.pop(eth_address)
