@@ -7,7 +7,6 @@ from tokeneth.app import urls
 from tokenservices.test.base import AsyncHandlerTest
 from asyncbb.test.database import requires_database
 from tokenbrowser.request import sign_request
-from tokenbrowser.utils import data_decoder
 from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY
 
 from tokeneth.test.test_transaction import (
