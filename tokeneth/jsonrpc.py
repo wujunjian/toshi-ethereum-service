@@ -1,3 +1,4 @@
+import binascii
 from asyncbb.jsonrpc import JsonRPCBase, map_jsonrpc_arguments
 from asyncbb.errors import JsonRPCInvalidParamsError, JsonRPCInternalError, JsonRPCError
 from asyncbb.database import DatabaseMixin
@@ -43,7 +44,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         }
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
-    async def create_transaction_skeleton(self, *, to_address, from_address, value, nonce=None, gas=None, gas_price=None):
+    async def create_transaction_skeleton(self, *, to_address, from_address, value, nonce=None, gas=None, gas_price=None, data=None):
 
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
@@ -74,8 +75,25 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
             if nonce is None:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Invalid Nonce'})
 
+        if data is not None:
+            if isinstance(data, int):
+                data = hex(data)
+            if isinstance(data, str):
+                try:
+                    data = data_decoder(data)
+                except binascii.Error:
+                    pass
+            if not isinstance(data, bytes):
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Invalid Data field'})
+        else:
+            data = b''
+
         if gas is None:
-            gas = DEFAULT_STARTGAS
+            # if there is data the default startgas value wont be enough
+            if data:
+                gas = await self.eth.eth_estimateGas(from_address, to_address, nonce=nonce, data=data)
+            else:
+                gas = DEFAULT_STARTGAS
         else:
             gas = parse_int(gas)
             if gas is None:
@@ -89,7 +107,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
 
         tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
-                                to=to_address, value=value)
+                                to=to_address, value=value, data=data)
 
         transaction = encode_transaction(tx)
 

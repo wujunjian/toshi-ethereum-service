@@ -183,3 +183,37 @@ class TransactionTest(AsyncHandlerTest):
                                        address=TEST_ADDRESS_2, signature=signature, timestamp=timestamp)
 
         self.assertEqual(resp.code, 400, resp.body)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_and_send_transaction_with_data(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10,
+            "data": "0xffffffff"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        await self.wait_on_tx_confirmation(tx_hash)

@@ -33,8 +33,9 @@ so it is important that the same address is used to sign the returned skeleton.
             "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
             "gas": 21000,
             "gasPrice": 20000000000,
-            "nonce":
-            "value": 1000000000000000000
+            "nonce": 1
+            "value": 1000000000000000000,
+	    "data": "0xffffffff"
         }
 
 + Response 200 (application/json)
@@ -498,7 +499,8 @@ Creates an unsigned transaction with the the given arguments, using network defa
         "gas": 21000,
         "gasPrice": 20000000000,
         "nonce": "0x10000",
-        "value": 1000000000000000000
+        "value": 1000000000000000000,
+	"data": "0xffffffff"
     }
 }
 ```
