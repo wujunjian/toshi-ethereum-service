@@ -44,7 +44,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         }
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
-    async def create_transaction_skeleton(self, *, to_address, from_address, value, nonce=None, gas=None, gas_price=None, data=None):
+    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None):
 
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
@@ -52,10 +52,10 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         if not validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address'})
 
-        value = parse_int(value)
-
-        if not value:
-            raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
+        if value:
+            value = parse_int(value)
+            if value is None:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
 
         # check optional arguments
 

@@ -183,6 +183,10 @@ class TransactionTest(AsyncHandlerTest):
                                        address=TEST_ADDRESS_2, signature=signature, timestamp=timestamp)
 
         self.assertEqual(resp.code, 400, resp.body)
+        self.assertIsNotNone(resp.body)
+        error = json_decode(resp.body)
+        self.assertIn('errors', error)
+        self.assertEqual(len(error['errors']), 1)
 
     @gen_test(timeout=30)
     @requires_database
@@ -217,3 +221,87 @@ class TransactionTest(AsyncHandlerTest):
         tx_hash = body['tx_hash']
 
         await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_and_send_transaction_with_0_value_and_data(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 0,
+            "data": "0xffffffff"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_and_send_transaction_with_no_value_and_data(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "data": "0xffffffff"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_transaction_with_large_data(self):
+
+        body = {
+            "from": "0x0004DE837Ea93edbE51c093f45212AB22b4B35fc",
+            "to": "0xa0c4d49fe1a00eb5ee3d85dc7a287d84d8c66699",
+            "value": 0,
+            "data": "0x94d9cf8f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000003c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
