@@ -12,6 +12,11 @@ DEFAULT_POLL_DELAY = 5
 
 log = logging.getLogger("tokeneth.monitor")
 
+
+JSONRPC_ERRORS = (ConnectionRefusedError,  # Server isn't running
+                  OSError  # No route to host
+                 )
+
 class BlockMonitor(DatabaseMixin, BalanceMixin):
 
     def __init__(self, pool, url, pushclient=None, ioloop=None):
@@ -23,15 +28,15 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
             ioloop = IOLoop.current()
         self.ioloop = ioloop
 
-        self._startup_future = asyncio.Future()
-        self.ioloop.add_callback(self._initialise)
-
         self._check_schedule = None
         self._poll_schedule = None
         self._block_checking_process = None
         self._filter_poll_process = None
 
-    def initialise(self):
+    def start(self):
+        if not hasattr(self, '_startup_future'):
+            self._startup_future = asyncio.Future()
+            self.ioloop.add_callback(self._initialise)
         return self._startup_future
 
     async def _initialise(self):
@@ -50,33 +55,49 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         self.last_block_number = last_block_number
         self._shutdown = False
 
-        self.unmatched_transactions = {}
-
-        # NOTE: filters timeout if eth_getFilterChanges is not used for some time
-        # so there's no need to worry about removing them
-        try:
-            self._new_pending_transaction_filter_id = await self.eth.eth_newPendingTransactionFilter()
-            log.info("Listening for new pending transactions")
-        except:
-            self._new_pending_transaction_filter_id = None
-            log.exception("Error registering for new pending transactions")
-        try:
-            self._new_block_filter_id = await self.eth.eth_newBlockFilter()
-            log.info("Listening for new blocks")
-        except:
-            self._new_block_filter_id = None
-            log.exception("Error registering for new blocks")
-
         # list of callbacks for transaction notifications
         # form is {token_id: [method, ...], ...}
         self.callbacks = {}
 
-        if self._new_block_filter_id is None and self._new_pending_transaction_filter_id:
-            log.warning("Not starting monitor as filter registrations failed")
-        else:
-            self.schedule_filter_poll()
+        self.unmatched_transactions = {}
+
+        await self.register_filters()
+
+        self.schedule_filter_poll()
 
         self._startup_future.set_result(True)
+
+    async def register_filters(self):
+        if not self._shutdown:
+            self._new_pending_transaction_filter_id = await self.register_new_pending_transaction_filter()
+        if not self._shutdown:
+            self._new_block_filter_id = await self.register_new_block_filter()
+
+    async def register_new_pending_transaction_filter(self):
+        backoff = 0
+        while not self._shutdown:
+            try:
+                filter_id = await self.eth.eth_newPendingTransactionFilter()
+                log.info("Listening for new pending transactions")
+                return filter_id
+            except:
+                log.exception("Error registering for new pending transactions")
+                if not self._shutdown:
+                    backoff = min(backoff + 1, 10)
+                    await asyncio.sleep(backoff)
+
+    async def register_new_block_filter(self):
+        backoff = 0
+        while not self._shutdown:
+            try:
+                filter_id = await self.eth.eth_newBlockFilter()
+                log.info("Listening for new blocks")
+                return filter_id
+            except:
+                log.exception("Error registering for new blocks")
+                if not self._shutdown:
+                    backoff = min(backoff + 1, 10)
+                    await asyncio.sleep(backoff)
 
     def schedule_block_check(self, delay=DEFAULT_BLOCK_CHECK_DELAY):
 
@@ -95,7 +116,11 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         self._block_checking_process = asyncio.Future()
 
         while not self._shutdown:
-            block = await self.eth.eth_getBlockByNumber(self.last_block_number + 1)
+            try:
+                block = await self.eth.eth_getBlockByNumber(self.last_block_number + 1)
+            except JSONRPC_ERRORS:
+                log.exception("Error getting block by number")
+                block = None
             if block:
 
                 # process block
@@ -136,13 +161,24 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
             if self._new_pending_transaction_filter_id is not None:
                 # get the list of new pending transactions
-                new_pending_transactions = await self.eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
-                # add any to the list of unprocessed transactions
-                self.unmatched_transactions.update({tx_hash: 0 for tx_hash in new_pending_transactions})
+                try:
+                    new_pending_transactions = await self.eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
+                    # add any to the list of unprocessed transactions
+                    self.unmatched_transactions.update({tx_hash: 0 for tx_hash in new_pending_transactions})
+                except JSONRPC_ERRORS:
+                    log.exception("WARNING: unable to connect to server")
+                    new_pending_transactions = None
+
+        if new_pending_transactions is None:
+            await self.register_filters()
 
         # go through all the unmatched transactions that have no match
         for tx_hash, age in list(self.unmatched_transactions.items()):
-            tx = await self.eth.eth_getTransactionByHash(tx_hash)
+            try:
+                tx = await self.eth.eth_getTransactionByHash(tx_hash)
+            except JSONRPC_ERRORS:
+                log.exception("Error getting transaction")
+                tx = None
             if tx is None:
                 # if the tx has been checked a number of times and not found, assume it was
                 # removed from the network before being accepted into a block
@@ -168,7 +204,16 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         if not self._shutdown:
 
             if self._new_block_filter_id is not None:
-                new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
+                try:
+                    new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
+                except JSONRPC_ERRORS:
+                    log.exception("Error getting new block filter")
+                    new_blocks = None
+                if new_blocks is None:
+                    await self.register_filters()
+                    # do a block check right after as it may have taken some time to
+                    # reconnect and we may have missed a block notification
+                    new_blocks = True
                 # NOTE: this is not very smart, as if the block check is
                 # already running this will cause it to run twice. However,
                 # this is currently taken care of in the block check itself
@@ -194,6 +239,8 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
             await self._block_checking_process
         if self._filter_poll_process:
             await self._filter_poll_process
+
+        self._startup_future = None
 
     async def send_transaction_notifications(self, transaction):
 

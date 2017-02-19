@@ -68,4 +68,5 @@ def main():
         else:
             pushclient = None
         app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], pushclient=pushclient)
+        app.monitor.start()
     app.start()

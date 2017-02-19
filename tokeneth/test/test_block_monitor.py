@@ -13,6 +13,7 @@ from asyncbb.ethereum.test.parity import requires_parity
 from asyncbb.ethereum.test.faucet import FaucetMixin
 from tokenbrowser.tx import sign_transaction
 from tokenbrowser.sofa import SofaPayment, parse_sofa_message
+from ethutils import private_key_to_address
 
 from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -23,7 +24,7 @@ from tokeneth.test.test_transaction import (
 from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
-def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_monitor=False):
+def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
     """Used to ensure all database connections are returned to the pool
     before finishing the test"""
 
@@ -36,7 +37,8 @@ def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_mo
 
             self._app.monitor = cls(self._app.connection_pool, self._app.config['ethereum']['url'])
 
-            await self._app.monitor.initialise()
+            if begin_started:
+                await self._app.monitor.start()
 
             if pass_monitor:
                 if pass_monitor is True:
@@ -267,3 +269,70 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             unconfirmed_counts[token] += 1
             if unconfirmed_counts[token] > 1:
                 warnings.warn("got more than one unconfirmed notification for a single device")
+
+class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
+
+    def get_urls(self):
+        return urls
+
+    def get_url(self, path):
+        path = "/v1{}".format(path)
+        return super().get_url(path)
+
+    async def send_tx(self, from_key, to_addr, val):
+        from_addr = private_key_to_address(from_key)
+        body = {
+            "from": from_addr,
+            "to": to_addr,
+            "value": val
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertResponseCodeEqual(resp, 200, resp.body)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], TEST_ID_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertResponseCodeEqual(resp, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+        return tx_hash
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity(pass_args=True)
+    @requires_block_monitor(cls=SimpleBlockMonitor, pass_monitor=True, begin_started=False)
+    async def test_get_block_confirmation(self, *, parity, ethminer, monitor):
+
+        addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
+        val = 761751855997712
+
+        await self.faucet(TEST_ID_ADDRESS, val * 10)
+
+        await monitor.start()
+
+        # kill the server!
+        parity.pause()
+
+        # sleep for a bit to give the monitor time to poll
+        await asyncio.sleep(5)
+
+        # start it again
+        parity.start()
+
+        # see if we get notifications still!
+
+        await self.send_tx(TEST_ID_KEY, addr, 10 ** 10)
+        tx = await monitor.confirmation_queue.get()
+
+        self.assertIsNotNone(tx)
