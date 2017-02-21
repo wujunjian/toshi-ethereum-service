@@ -122,6 +122,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 log.exception("Error getting block by number")
                 block = None
             if block:
+                log.info("Processing block {}".format(block['number']))
 
                 # process block
                 for tx in block['transactions']:
@@ -149,6 +150,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
         self._block_checking_process.set_result(True)
         self._block_checking_process = None
+        log.info("Block check done")
 
     async def filter_poll(self):
 
