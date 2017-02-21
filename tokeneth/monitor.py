@@ -1,4 +1,5 @@
 import asyncio
+import time
 from tornado.ioloop import IOLoop
 from asyncbb.ethereum.client import JsonRPCClient
 from tokenbrowser.sofa import SofaPayment
@@ -32,6 +33,8 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         self._poll_schedule = None
         self._block_checking_process = None
         self._filter_poll_process = None
+
+        self._lastlog = 0
 
     def start(self):
         if not hasattr(self, '_startup_future'):
@@ -115,6 +118,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
         self._block_checking_process = asyncio.Future()
 
+        log.info("Starting block check...")
         while not self._shutdown:
             try:
                 block = await self.eth.eth_getBlockByNumber(self.last_block_number + 1)
@@ -122,7 +126,9 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 log.exception("Error getting block by number")
                 block = None
             if block:
-                log.info("Processing block {}".format(block['number']))
+                if self._lastlog + 5 < time.time():
+                    self._lastlog = time.time()
+                    log.info("Processing block {}".format(block['number']))
 
                 # process block
                 for tx in block['transactions']:
