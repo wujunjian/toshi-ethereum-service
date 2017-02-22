@@ -1,5 +1,6 @@
 import asyncio
 import time
+import tornado.httpclient
 from tornado.ioloop import IOLoop
 from asyncbb.ethereum.client import JsonRPCClient
 from tokenbrowser.sofa import SofaPayment
@@ -14,8 +15,9 @@ DEFAULT_POLL_DELAY = 5
 log = logging.getLogger("tokeneth.monitor")
 
 
-JSONRPC_ERRORS = (ConnectionRefusedError,  # Server isn't running
-                  OSError  # No route to host
+JSONRPC_ERRORS = (tornado.httpclient.HTTPError,
+                  ConnectionRefusedError,  # Server isn't running
+                  OSError,  # No route to host
                  )
 
 class BlockMonitor(DatabaseMixin, BalanceMixin):
