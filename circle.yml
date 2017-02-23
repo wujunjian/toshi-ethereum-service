@@ -13,9 +13,9 @@ dependencies:
     - sudo apt-get update
     - sudo apt-get install -y ethereum ethminer
     - if [[ ! -d ~/.ethash ]]; then ethminer -D 0; fi
-    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.4.10/x86_64-unknown-linux-gnu/parity_1.4.10_amd64.deb
-    - sudo dpkg -i parity_1.4.10_amd64.deb
-    - rm parity_1.4.10_amd64.deb
+    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.4.11/x86_64-unknown-linux-gnu/parity_1.4.11_amd64.deb
+    - sudo dpkg -i parity_1.4.11_amd64.deb
+    - rm parity_1.4.11_amd64.deb
     - pip install -r requirements-testing.txt
   post:
     - npm install -g aglio
@@ -30,4 +30,4 @@ deployment:
     commands:
       - git clone --depth 1 git@github.com:tokenbrowser/docs.git $HOME/docs
       - $HOME/docs/deploy-blueprint.sh $CIRCLE_PROJECT_REPONAME docs/api.apib $CIRCLE_SHA1
-      - git push -f git@heroku.com:token-eth-service.git $CIRCLE_SHA1:master
+      - git push -f git@heroku.com:token-eth-service-development.git $CIRCLE_SHA1:master
