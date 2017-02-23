@@ -30,8 +30,6 @@ heroku git:remote -a <heroku-project-name> -r <remote-name>
 NOTE: if you have multiple deploys you need to append
 `--app <heroku-project-name>` to all the following commands.
 
-### Config
-
 #### Addons
 
 ```
