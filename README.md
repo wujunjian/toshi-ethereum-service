@@ -19,7 +19,25 @@ DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_N
 
 ## Running on heroku
 
+### Add heroku git
+
+```
+heroku git:remote -a <heroku-project-name> -r <remote-name>
+```
+
 ### Config
+
+NOTE: if you have multiple deploys you need to append
+`--app <heroku-project-name>` to all the following commands.
+
+### Config
+
+#### Addons
+
+```
+heroku addons:create heroku-postgresql:hobby-basic
+heroku addons:create heroku-redis:hobby-dev
+```
 
 #### Buildpacks
 
@@ -34,8 +52,18 @@ heroku config:set SSH_KEY=$(cat path/to/your/keys/id_rsa | base64)
 #### Extra Config variables
 
 ```
-PGSQL_STUNNEL_ENABLED=1
-ETHEREUM_NODE_URL=<jsonrpc-url>
+heroku config:set PUSH_URL=<token-push-service-url>
+heroku config:set PUSH_USER=<token-push-service-username>
+heroku config:set PUSH_PASSWORD=<token-push-service-password>
+heroku config:set PGSQL_STUNNEL_ENABLED=1
+heroku config:set ETHEREUM_NODE_URL=<jsonrpc-url>
+```
+
+Optional:
+
+```
+heroku config:set SLACK_LOG_URL=<slack-webhook-url>
+heroku config:set SLACK_LOG_USERNAME="token-eth-log-bot"
 ```
 
 The `Procfile` and `runtime.txt` files required for running on heroku
