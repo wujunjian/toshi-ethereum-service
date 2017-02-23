@@ -120,7 +120,6 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
         self._block_checking_process = asyncio.Future()
 
-        log.info("Starting block check...")
         while not self._shutdown:
             try:
                 block = await self.eth.eth_getBlockByNumber(self.last_block_number + 1)
@@ -128,7 +127,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 log.exception("Error getting block by number")
                 block = None
             if block:
-                if self._lastlog + 5 < time.time():
+                if self._lastlog + 1800 < time.time():
                     self._lastlog = time.time()
                     log.info("Processing block {}".format(block['number']))
 
@@ -158,7 +157,6 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
         self._block_checking_process.set_result(True)
         self._block_checking_process = None
-        log.info("Block check done")
 
     async def filter_poll(self):
 
