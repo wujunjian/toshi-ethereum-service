@@ -51,7 +51,7 @@ heroku config:set SSH_KEY=$(cat path/to/your/keys/id_rsa | base64)
 
 ```
 heroku config:set PUSH_URL=<token-push-service-url>
-heroku config:set PUSH_USER=<token-push-service-username>
+heroku config:set PUSH_USERNAME=<token-push-service-username>
 heroku config:set PUSH_PASSWORD=<token-push-service-password>
 heroku config:set PGSQL_STUNNEL_ENABLED=1
 heroku config:set ETHEREUM_NODE_URL=<jsonrpc-url>
