@@ -45,8 +45,13 @@ class Application(asyncbb.web.Application):
         if 'GCM_SERVER_KEY' in os.environ:
             config.setdefault('gcm', SectionProxy(config, 'gcm'))['server_key'] = os.environ['GCM_SERVER_KEY']
 
+        if 'SLACK_LOG_USERNAME' in os.environ:
+            name = os.environ['SLACK_LOG_USERNAME']
+        else:
+            name = "TokenEthService"
+
         if 'SLACK_LOG_URL' in os.environ:
-            handler = SlackLogHandler({'default': os.environ['SLACK_LOG_URL']})
+            handler = SlackLogHandler(name, {'default': os.environ['SLACK_LOG_URL']})
             log.addHandler(handler)
             monitor_log.addHandler(handler)
             app_log.addHandler(handler)
