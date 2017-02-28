@@ -58,13 +58,6 @@ class Application(asyncbb.web.Application):
             gen_log.addHandler(handler)
             access_log.addHandler(handler)
 
-        if 'aps_flags' not in config:
-            config['aps_flags'] = {}
-        if 'APS_CONTENT_AVAILABLE' in os.environ:
-            config['aps_flags']['content-available'] = os.environ['APS_CONTENT_AVAILABLE']
-        if 'APS_MUTABLE_CONTENT' in os.environ:
-            config['aps_flags']['mutable-content'] = os.environ['APS_MUTABLE_CONTENT']
-
         return config
 
 def main():
@@ -74,11 +67,9 @@ def main():
         if 'gcm' in app.config and 'server_key' in app.config['gcm'] and app.config['gcm']['server_key'] is not None:
             pushclient = GCMHttpPushClient(app.config['gcm']['server_key'])
         elif 'pushserver' in app.config and 'url' in app.config['pushserver'] and app.config['pushserver']['url'] is not None:
-            aps_flags = {k: int(v) for k, v in app.config['aps_flags'].items()}
             pushclient = PushServerClient(url=app.config['pushserver']['url'],
                                           username=app.config['pushserver'].get('username'),
-                                          password=app.config['pushserver'].get('password'),
-                                          aps_flags=aps_flags)
+                                          password=app.config['pushserver'].get('password'))
         else:
             pushclient = None
         app.monitor = BlockMonitor(app.connection_pool, app.config['ethereum']['url'], pushclient=pushclient)
