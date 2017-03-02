@@ -34,3 +34,7 @@ deployment:
       - git clone --depth 1 git@github.com:tokenbrowser/docs.git $HOME/docs
       - $HOME/docs/deploy-blueprint.sh $CIRCLE_PROJECT_REPONAME docs/api.apib $CIRCLE_SHA1
       - git push -f git@heroku.com:token-eth-service-development.git $CIRCLE_SHA1:master
+  production:
+    branch: production
+    commands:
+      - git push -f git@heroku.com:token-eth-service.git $CIRCLE_SHA1:master
