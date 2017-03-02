@@ -13,9 +13,9 @@ dependencies:
     - sudo apt-get update
     - sudo apt-get install -y ethereum ethminer
     - if [[ ! -d ~/.ethash ]]; then ethminer -D 0; fi
-    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.4.11/x86_64-unknown-linux-gnu/parity_1.4.11_amd64.deb
-    - sudo dpkg -i parity_1.4.11_amd64.deb
-    - rm parity_1.4.11_amd64.deb
+    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.4.12/x86_64-unknown-linux-gnu/parity_1.4.12_amd64.deb
+    - sudo dpkg -i parity_1.4.12_amd64.deb
+    - rm parity_1.4.12_amd64.deb
     - pip install -r requirements-testing.txt
   post:
     - npm install -g aglio
