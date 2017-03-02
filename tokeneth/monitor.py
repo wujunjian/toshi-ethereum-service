@@ -157,6 +157,8 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
         self._block_checking_process.set_result(True)
         self._block_checking_process = None
+        # force block check in 10 seconds
+        self.schedule_block_check(10)
 
     async def filter_poll(self):
 
