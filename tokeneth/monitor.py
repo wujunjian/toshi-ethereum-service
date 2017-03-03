@@ -115,7 +115,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
     async def block_check(self):
 
         if self._block_checking_process is not None:
-            log.warning("Block check is already running")
+            log.debug("Block check is already running")
             return
 
         self._block_checking_process = asyncio.Future()
@@ -163,7 +163,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
     async def filter_poll(self):
 
         if self._filter_poll_process is not None:
-            log.warning("filter polling is already running")
+            log.debug("filter polling is already running")
             return
 
         self._filter_poll_process = asyncio.Future()
