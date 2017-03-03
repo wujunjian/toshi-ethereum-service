@@ -3,15 +3,14 @@ import os
 
 from . import handlers
 from .monitor import BlockMonitor, log as monitor_log
-from tornado.log import app_log, access_log, gen_log
 from . import websocket
 
 from tokenservices.push import PushServerClient, GCMHttpPushClient
 from tokenservices.handlers import GenerateTimestamp
 from configparser import SectionProxy
 
-from asyncbb.log import SlackLogHandler
-from tokenservices.log import log
+from asyncbb.log import configure_logger
+from tokenservices.log import log as services_log
 
 urls = [
     (r"^/v1/tx/skel/?$", handlers.TransactionSkeletonHandler),
@@ -45,18 +44,8 @@ class Application(asyncbb.web.Application):
         if 'GCM_SERVER_KEY' in os.environ:
             config.setdefault('gcm', SectionProxy(config, 'gcm'))['server_key'] = os.environ['GCM_SERVER_KEY']
 
-        if 'SLACK_LOG_USERNAME' in os.environ:
-            name = os.environ['SLACK_LOG_USERNAME']
-        else:
-            name = "TokenEthService"
-
-        if 'SLACK_LOG_URL' in os.environ:
-            handler = SlackLogHandler(name, {'default': os.environ['SLACK_LOG_URL']})
-            log.addHandler(handler)
-            monitor_log.addHandler(handler)
-            app_log.addHandler(handler)
-            gen_log.addHandler(handler)
-            access_log.addHandler(handler)
+        configure_logger(services_log)
+        configure_logger(monitor_log)
 
         return config
 
