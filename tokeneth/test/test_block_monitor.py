@@ -154,7 +154,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
                     break
 
         # make sure we got an unconfirmed tx notification
-        self.assertEqual(got_unconfirmed, 1)
+        self.assertNotEqual(got_unconfirmed, 0)
 
 
 class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
@@ -276,9 +276,9 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
     @gen_test(timeout=120)
     @requires_database
     @requires_redis
-    @requires_parity
+    @requires_parity(pass_ethminer=True)
     @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
-    async def test_always_get_unconfirmed_push_notification(self, *, monitor):
+    async def test_always_get_unconfirmed_push_notification(self, *, ethminer, monitor):
         """Tests that when tx's are send through our systems we always get
         an unconfirmed push notification"""
 
@@ -303,7 +303,10 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
         # run this a bunch of times to see if
         # we can expose any race conditions
-        for _ in range(10):
+        for iteration in range(4):
+
+            if iteration > 2:
+                ethminer.pause()
 
             value = 2821181018869341261
 
@@ -320,6 +323,10 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             })
             self.assertResponseCodeEqual(resp, 200, resp.body)
             tx_hash = json_decode(resp.body)['tx_hash']
+
+            if iteration > 2:
+                await asyncio.sleep(5)
+                ethminer.start()
 
             unconfirmed_count = 0
             while True:

@@ -160,6 +160,8 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         tx = sign_transaction(tx, TEST_ID_KEY)
         tx = encode_transaction(tx)
 
+        await ws_con.call("subscribe", [addr])
+
         tx_hash = await ws_con.call("send_transaction", {"tx": tx})
 
         new_balance = val - (val2 + DEFAULT_STARTGAS * DEFAULT_GASPRICE)
@@ -167,8 +169,6 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         result = await ws_con.call("get_balance", [TEST_ID_ADDRESS])
         self.assertEqual(int(result['confirmed_balance'][2:], 16), val)
         self.assertEqual(int(result['unconfirmed_balance'][2:], 16), new_balance)
-
-        await ws_con.call("subscribe", [addr])
 
         # check for the unconfirmed notification
         result = await ws_con.read()
