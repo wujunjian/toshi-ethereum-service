@@ -7,6 +7,8 @@ from tokenbrowser.sofa import SofaPayment
 from asyncbb.log import logging
 from asyncbb.database import DatabaseMixin
 
+from tokenbrowser.utils import parse_int
+
 from .handlers import BalanceMixin
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
@@ -134,15 +136,6 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 # process block
                 for tx in block['transactions']:
 
-                    # if we had this stored as an unconfirmed transaction then mark it confirmed
-                    tx_hash = tx['hash']
-                    async with self.pool.acquire() as con:
-                        row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1",
-                                                 tx_hash)
-                        if row:
-                            await con.execute("UPDATE transactions SET confirmed = (now() AT TIME ZONE 'utc') WHERE transaction_hash = $1",
-                                              tx_hash)
-
                     # send notifications to sender and reciever
                     await self.send_transaction_notifications(tx)
 
@@ -199,6 +192,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                     self.unmatched_transactions[tx_hash] += 1
             else:
                 self.unmatched_transactions.pop(tx_hash, None)
+
                 # check if the transaction has already been included in a block
                 # and if so, ignore this notification as it will be picked up by
                 # the confirmed block check and there's no need to send two
@@ -258,28 +252,99 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         from_address = transaction['from']
 
         token_ids = []
+        overwritten_tx_hash = None
+        overwritten_tx_hash_to_address = None
+        overwritten_tx_token_ids = []
+        sender_token_id = None
         async with self.pool.acquire() as con:
-            if to_address:
-                to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
-                to_ids = [row['token_id'] for row in to_ids]
-                token_ids.extend(to_ids)
-            if from_address:
-                from_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", from_address)
-                from_ids = [row['token_id'] for row in from_ids]
-                token_ids.extend(from_ids)
+            # find if we have a record of this tx by checking the from address and nonce
+            db_tx = await con.fetchrow("SELECT * FROM transactions WHERE "
+                                       "from_address = $1 AND nonce = $2",
+                                       from_address, parse_int(transaction['nonce']))
 
-            db_tx = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1",
-                                       transaction['hash'])
+            to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
+            to_ids = [row['token_id'] for row in to_ids]
+            token_ids.extend(to_ids)
 
-        # check if we have this transaction saved in the database with
-        # a specific token_id for the sender
-        if db_tx:
-            sender_token_id = db_tx['sender_token_id']
-        else:
-            sender_token_id = None
+            from_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", from_address)
+            from_ids = [row['token_id'] for row in from_ids]
+            token_ids.extend(from_ids)
+
+            # check if we have this transaction saved in the database with
+            # a specific token_id for the sender
+            if db_tx:
+                sender_token_id = db_tx['sender_token_id']
+                # make sure the tx hash we have already matches this
+                if transaction['hash'] != db_tx['transaction_hash']:
+                    # if not we have an overwrite
+                    overwritten_tx_hash = db_tx['transaction_hash']
+                    overwritten_tx_hash_to_address = db_tx['to_address']
+                    if to_address != overwritten_tx_hash_to_address:
+                        old_to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", db_tx['to_address'])
+                        old_to_ids = [row['token_id'] for row in old_to_ids]
+                        overwritten_tx_token_ids.extend(old_to_ids)
+                    else:
+                        overwritten_tx_token_ids.extend(to_ids)
+                    overwritten_tx_token_ids.extend(from_ids)
+                    await con.execute("UPDATE transactions SET error = 1, last_status = 'error' WHERE transaction_hash = $1", db_tx['transaction_hash'])
+                    # reset db_tx so we store it later
+                    db_tx = None
+                else:
+                    # check last_status to see if we need to send this as a pn or not
+                    # and update the status
+                    if db_tx['last_status'] is None:
+                        # we've not seen this tx here before at all, send the PN!
+                        await con.execute("UPDATE transactions SET {}"
+                                          "last_status = $1 "
+                                          "WHERE transaction_hash = $2".format(
+                                              "confirmed = (now() AT TIME ZONE 'utc'), " if transaction['blockNumber'] is not None else ""),
+                                          'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed',
+                                          transaction['hash'])
+                    elif db_tx['last_status'] == 'unconfirmed':
+                        if transaction['blockNumber'] is None:
+                            # we've already sent a pending transaction notification
+                            # so there's no need to send another
+                            return
+                        else:
+                            # if we had this stored as an unconfirmed transaction then mark it confirmed
+                            await con.execute("UPDATE transactions SET confirmed = (now() AT TIME ZONE 'utc'), "
+                                              "last_status = 'confirmed' "
+                                              "WHERE transaction_hash = $1",
+                                              transaction['hash'])
+                    elif db_tx['last_status'] in ["confirmed", "error"]:
+                        log.warning("got request to resend PNs for tx with last status '{}' and new status '{}'".format(
+                            db_tx['last_status'], 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed'))
+                        return
+                    else:
+                        log.warning("got unknown `last_status` value '{}' for tx: {}".format(db_tx['last_status'], transaction['hash']))
+
+            # if there are interested parties in the new tx, add it to the database
+            if db_tx is None and (token_ids or any(addr in self.callbacks for addr in [to_address, from_address])):
+                await con.execute("INSERT INTO transactions "
+                                  "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id, last_status) "
+                                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                                  transaction['hash'], from_address, to_address, parse_int(transaction['nonce']), str(parse_int(transaction['value'])),
+                                  str(parse_int(transaction['gas']) * parse_int(transaction['gasPrice'])),
+                                  sender_token_id, 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
+
+        # if the tx was overwritten, send the tx cancel message first
+        if overwritten_tx_hash:
+            await self.send_notifications([overwritten_tx_hash_to_address, from_address],
+                                          overwritten_tx_token_ids,
+                                          {'hash': overwritten_tx_hash,
+                                           'to': overwritten_tx_hash_to_address,
+                                           'from': from_address,
+                                           'blockNumber': None,
+                                           'value': None,
+                                           'error': 'overwritten'},
+                                          sender_token_id)
+
+        await self.send_notifications([to_address, from_address], token_ids, transaction, sender_token_id)
+
+    async def send_notifications(self, addresses, token_ids, transaction, sender_token_id):
 
         # check websockets listening to addresses
-        for subscription_id in [to_address, from_address]:
+        for subscription_id in addresses:
             if subscription_id in self.callbacks:
                 log.info("Sending tx via websocket subscription: {}".format(subscription_id))
                 for callback in self.callbacks[subscription_id]:
@@ -292,7 +357,6 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 pn_registrations = await con.fetch("SELECT service, registration_id FROM push_notification_registrations WHERE token_id = $1", token_id)
 
             for row in pn_registrations:
-
                 await self.send_push_notification(row['service'], row['registration_id'], transaction, token_id, sender_token_id)
 
     async def send_push_notification(self, push_service, registration_id, transaction, target_token_id, sender_token_id):

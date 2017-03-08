@@ -212,6 +212,9 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
 
             self.assertEqual(message['status'], "unconfirmed")
             unconfirmed_count += 1
+            # since this tx came from outside our system there's no guarantee we
+            # even see this since the block monitor might miss it before it's
+            # actually confirmed
             if unconfirmed_count > 1:
                 warnings.warn("got more than one unconfirmed notification for a single transaction")
 
@@ -269,6 +272,76 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             unconfirmed_counts[token] += 1
             if unconfirmed_counts[token] > 1:
                 warnings.warn("got more than one unconfirmed notification for a single device")
+
+    @gen_test(timeout=120)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_always_get_unconfirmed_push_notification(self, *, monitor):
+        """Tests that when tx's are send through our systems we always get
+        an unconfirmed push notification"""
+
+        # register for GCM PNs
+        body = {
+            "registration_id": TEST_GCM_ID
+        }
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+
+        async with self.pool.acquire() as con:
+            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+        self.assertIsNotNone(rows)
+        self.assertEqual(len(rows), 1)
+
+        # register for notifications for the test address
+        body = {
+            "addresses": [TEST_WALLET_ADDRESS]
+        }
+        resp = await self.fetch_signed("/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+
+        # run this a bunch of times to see if
+        # we can expose any race conditions
+        for _ in range(10):
+
+            value = 2821181018869341261
+
+            resp = await self.fetch("/tx/skel", method="POST", body={
+                "from": FAUCET_ADDRESS,
+                "to": TEST_WALLET_ADDRESS,
+                "value": value
+            })
+            self.assertResponseCodeEqual(resp, 200, resp.body)
+            body = json_decode(resp.body)
+            tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+            resp = await self.fetch("/tx", method="POST", body={
+                "tx": tx
+            })
+            self.assertResponseCodeEqual(resp, 200, resp.body)
+            tx_hash = json_decode(resp.body)['tx_hash']
+
+            unconfirmed_count = 0
+            while True:
+                token, payload = await monitor.pushclient.send_queue.get()
+
+                self.assertEqual(token, TEST_GCM_ID)
+
+                message = parse_sofa_message(payload['message'])
+
+                self.assertIsInstance(message, SofaPayment)
+                self.assertEqual(message['value'], hex(value))
+                self.assertEqual(message['txHash'], tx_hash)
+
+                if message['status'] == "confirmed":
+                    break
+
+                self.assertEqual(message['status'], "unconfirmed")
+                unconfirmed_count += 1
+            # when the tx is sent through our systems we should
+            # always get one unconfirmed notification, and we
+            # should never get more than one
+            self.assertEqual(unconfirmed_count, 1)
 
 class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
 

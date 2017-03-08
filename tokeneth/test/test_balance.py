@@ -60,7 +60,7 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
         await self.faucet(addr, val)
 
         async with self.pool.acquire() as con:
-            await con.execute("INSERT INTO transactions VALUES ('0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c', $1, $2, $3)",
+            await con.execute("INSERT INTO transactions VALUES ('0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c', $1, $2, 0, $3)",
                               FAUCET_ADDRESS, addr, val)
 
         resp = await self.fetch('/balance/{}'.format(addr))

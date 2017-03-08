@@ -11,7 +11,8 @@ from tokenbrowser.utils import (
 from tokenbrowser.tx import (
     DEFAULT_STARTGAS, DEFAULT_GASPRICE, create_transaction,
     encode_transaction, decode_transaction, is_transaction_signed,
-    signature_from_transaction, add_signature_to_transaction
+    signature_from_transaction, add_signature_to_transaction,
+    transaction_to_json
 )
 
 from tokenservices.log import log
@@ -185,9 +186,16 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         # add tx to database
         async with self.db:
             await self.db.execute(
-                "INSERT INTO transactions (transaction_hash, from_address, to_address, value, estimated_gas_cost, sender_token_id) VALUES ($1, $2, $3, $4, $5, $6)",
-                tx_hash, from_address, to_address, str(tx.value), str(tx.startgas * tx.gasprice), self.user_token_id)
+                "INSERT INTO transactions "
+                "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                tx_hash, from_address, to_address, tx.nonce, str(tx.value), str(tx.startgas * tx.gasprice), self.user_token_id)
             await self.db.commit()
+
+        # if there is a block monitor, force send PNs for this without
+        # waiting for the node to see it
+        if hasattr(self.application, 'monitor'):
+            await self.application.monitor.send_transaction_notifications(transaction_to_json(tx))
 
         return tx_hash
 

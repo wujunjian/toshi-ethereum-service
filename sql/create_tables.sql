@@ -4,11 +4,18 @@ CREATE TABLE IF NOT EXISTS transactions (
     from_address VARCHAR NOT NULL,
     to_address VARCHAR NOT NULL,
 
+    nonce BIGINT NOT NULL,
+
     value VARCHAR NOT NULL,
     estimated_gas_cost VARCHAR DEFAULT 0,
 
     created TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc'),
     confirmed TIMESTAMP WITHOUT TIME ZONE,
+
+    -- the last seen status, used to know if PNs should be
+    -- sent or not
+    last_status VARCHAR,
+    error INTEGER,
 
     -- optional token identifier for the sender
     sender_token_id VARCHAR,
@@ -37,5 +44,6 @@ CREATE TABLE IF NOT EXISTS last_blocknumber (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_from_address_confirmed ON transactions (from_address, confirmed NULLS FIRST);
 CREATE INDEX IF NOT EXISTS idx_transactions_to_address_confirmed ON transactions (to_address, confirmed NULLS FIRST);
+CREATE INDEX IF NOT EXISTS idx_transactions_from_address_nonce ON transactions (from_address, nonce DESC);
 
-UPDATE database_version SET version_number = 1;
+UPDATE database_version SET version_number = 2;

@@ -149,7 +149,8 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
         async with self.db:
 
             await self.db.execute(
-                "INSERT INTO push_notification_registrations (service, registration_id, token_id) VALUES ($1, $2, $3) ON CONFLICT (service, registration_id) DO UPDATE SET token_id = $3",
+                "INSERT INTO push_notification_registrations (service, registration_id, token_id) "
+                "VALUES ($1, $2, $3) ON CONFLICT (service, registration_id) DO UPDATE SET token_id = $3",
                 service, payload['registration_id'], token_id)
 
             await self.db.commit()

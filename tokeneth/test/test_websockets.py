@@ -185,5 +185,8 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         self.assertIsNotNone(result['params']['transaction']['blockNumber'])
 
         result = await ws_con.call("get_balance", [TEST_ID_ADDRESS])
-        self.assertEqual(int(result['confirmed_balance'][2:], 16), new_balance)
-        self.assertEqual(int(result['unconfirmed_balance'][2:], 16), new_balance)
+
+        self.assertEqual(int(result['confirmed_balance'][2:], 16), new_balance,
+                         "int('{}', 16) != {}".format(result['confirmed_balance'], new_balance))
+        self.assertEqual(int(result['unconfirmed_balance'][2:], 16), new_balance,
+                         "int('{}', 16) != {}".format(result['unconfirmed_balance'], new_balance))
