@@ -5,6 +5,7 @@ from asyncbb.database import DatabaseMixin
 from asyncbb.ethereum.mixin import EthereumMixin
 from asyncbb.redis import RedisMixin
 from ethutils import data_decoder, data_encoder
+from tornado.ioloop import IOLoop
 from tokenbrowser.utils import (
     validate_address, parse_int, validate_signature, validate_transaction_hash
 )
@@ -195,7 +196,9 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         # if there is a block monitor, force send PNs for this without
         # waiting for the node to see it
         if hasattr(self.application, 'monitor'):
-            await self.application.monitor.send_transaction_notifications(transaction_to_json(tx))
+            txjson = transaction_to_json(tx)
+            assert txjson['hash'] == tx_hash
+            IOLoop.current().add_callback(self.application.monitor.send_transaction_notifications, txjson)
 
         return tx_hash
 

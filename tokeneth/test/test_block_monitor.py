@@ -11,9 +11,9 @@ from asyncbb.test.database import requires_database
 from asyncbb.test.redis import requires_redis
 from asyncbb.ethereum.test.parity import requires_parity
 from asyncbb.ethereum.test.faucet import FaucetMixin
-from tokenbrowser.tx import sign_transaction
+from tokenbrowser.tx import sign_transaction, decode_transaction, signature_from_transaction
 from tokenbrowser.sofa import SofaPayment, parse_sofa_message
-from ethutils import private_key_to_address
+from ethutils import private_key_to_address, data_encoder
 
 from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -77,7 +77,6 @@ class MockPushClient:
         self.send_queue = asyncio.Queue()
 
     async def send(self, token_id, network, device_token, data):
-
         if len(data) > 1 or 'message' not in data:
             raise NotImplementedError("Only data key allowed is 'message'")
 
@@ -165,6 +164,20 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
     def get_url(self, path):
         path = "/v1{}".format(path)
         return super().get_url(path)
+
+    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None):
+        while True:
+            resp = await self.fetch("/tx/{}".format(tx_hash))
+            self.assertEqual(resp.code, 200)
+            body = json_decode(resp.body)
+            if body is None or body['blockNumber'] is None:
+                if interval_check_callback:
+                    f = interval_check_callback()
+                    if asyncio.iscoroutine(f):
+                        await f
+                await asyncio.sleep(1)
+            else:
+                return body
 
     @gen_test(timeout=30)
     @requires_database
@@ -324,9 +337,16 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             self.assertResponseCodeEqual(resp, 200, resp.body)
             tx_hash = json_decode(resp.body)['tx_hash']
 
+            tx = decode_transaction(tx)
+            self.assertEqual(tx_hash, data_encoder(tx.hash))
+
             if iteration > 2:
                 await asyncio.sleep(5)
                 ethminer.start()
+
+            async with self.pool.acquire() as con:
+                rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+            self.assertEqual(len(rows), 1)
 
             unconfirmed_count = 0
             while True:
@@ -349,6 +369,80 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             # always get one unconfirmed notification, and we
             # should never get more than one
             self.assertEqual(unconfirmed_count, 1)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_sending_transactions_and_storing_the_hash_correctly(self, *, monitor):
+
+        """This test is born out of the fact that `UnsingedTransaction.hash` always
+        calculates the hash of the transaction without the signature, even after `.sign`
+        has been called on the transaction. This caused errors in what was being stored
+        in the database and incorrectly detecting transaction overwrites.
+
+        This test exposed the behaviour correctly so that it could be fixed"""
+
+        # register for GCM PNs
+        body = {
+            "registration_id": TEST_GCM_ID
+        }
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+        # register for notifications for the test address
+        body = {
+            "addresses": [TEST_ID_ADDRESS]
+        }
+        resp = await self.fetch_signed("/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ID_ADDRESS,
+            "value": 10 ** 10
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+        tx = decode_transaction(body['tx'])
+        tx = sign_transaction(tx, FAUCET_PRIVATE_KEY)
+        sig = signature_from_transaction(tx)
+
+        body = {
+            "tx": body['tx'],
+            "signature": data_encoder(sig)
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        async def check_db():
+            async with self.pool.acquire() as con:
+                rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['transaction_hash'], tx_hash)
+            if rows[0]['last_status'] is not None:
+                self.assertEqual(rows[0]['last_status'], 'unconfirmed')
+            self.assertIsNone(rows[0]['error'])
+
+        await self.wait_on_tx_confirmation(tx_hash, check_db)
+        while True:
+            token, payload = await monitor.pushclient.send_queue.get()
+            message = parse_sofa_message(payload['message'])
+
+            self.assertIsInstance(message, SofaPayment)
+            self.assertEqual(message['txHash'], tx_hash)
+
+            if message['status'] == "confirmed":
+                break
 
 class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
 

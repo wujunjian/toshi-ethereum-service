@@ -9,8 +9,8 @@ from asyncbb.test.database import requires_database
 from asyncbb.test.redis import requires_redis
 from asyncbb.ethereum.test.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokenbrowser.request import sign_request
-from ethutils import data_decoder
-from tokenbrowser.tx import sign_transaction
+from ethutils import data_decoder, data_encoder
+from tokenbrowser.tx import sign_transaction, decode_transaction, signature_from_transaction
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -27,12 +27,16 @@ class TransactionTest(AsyncHandlerTest):
         path = "/v1{}".format(path)
         return super().get_url(path)
 
-    async def wait_on_tx_confirmation(self, tx_hash):
+    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None):
         while True:
             resp = await self.fetch("/tx/{}".format(tx_hash))
             self.assertEqual(resp.code, 200)
             body = json_decode(resp.body)
             if body is None or body['blockNumber'] is None:
+                if interval_check_callback:
+                    f = interval_check_callback()
+                    if asyncio.iscoroutine(f):
+                        await f
                 await asyncio.sleep(1)
             else:
                 return body
@@ -67,6 +71,54 @@ class TransactionTest(AsyncHandlerTest):
 
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
+
+        tx = decode_transaction(tx)
+        self.assertEqual(tx_hash, data_encoder(tx.hash))
+
+        async with self.pool.acquire() as con:
+            rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+        self.assertEqual(len(rows), 1)
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_create_and_send_transaction_with_separate_sig(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+        tx = decode_transaction(body['tx'])
+        tx = sign_transaction(tx, FAUCET_PRIVATE_KEY)
+        sig = signature_from_transaction(tx)
+
+        body = {
+            "tx": body['tx'],
+            "signature": data_encoder(sig)
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        async def check_db():
+            async with self.pool.acquire() as con:
+                rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['transaction_hash'], tx_hash)
 
         await self.wait_on_tx_confirmation(tx_hash)
 

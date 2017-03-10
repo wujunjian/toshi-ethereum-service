@@ -276,6 +276,11 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 sender_token_id = db_tx['sender_token_id']
                 # make sure the tx hash we have already matches this
                 if transaction['hash'] != db_tx['transaction_hash']:
+                    log.warning("found overwritten transaction!")
+                    log.warning("tx from: {}".format(from_address))
+                    log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
+                    log.warning("old tx hash: {}".format(db_tx['transaction_hash']))
+                    log.warning("new tx hash: {}".format(transaction['hash']))
                     # if not we have an overwrite
                     overwritten_tx_hash = db_tx['transaction_hash']
                     overwritten_tx_hash_to_address = db_tx['to_address']
@@ -293,6 +298,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                     # check last_status to see if we need to send this as a pn or not
                     # and update the status
                     if db_tx['last_status'] is None:
+                        log.info("setting unconfirmed status on transaction: {}".format(transaction['hash']))
                         # we've not seen this tx here before at all, send the PN!
                         await con.execute("UPDATE transactions SET {}"
                                           "last_status = $1 "
@@ -306,6 +312,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                             # so there's no need to send another
                             return
                         else:
+                            log.info("setting confirmed status on transaction: {}".format(transaction['hash']))
                             # if we had this stored as an unconfirmed transaction then mark it confirmed
                             await con.execute("UPDATE transactions SET confirmed = (now() AT TIME ZONE 'utc'), "
                                               "last_status = 'confirmed' "
@@ -320,6 +327,10 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
 
             # if there are interested parties in the new tx, add it to the database
             if db_tx is None and (token_ids or any(addr in self.callbacks for addr in [to_address, from_address])):
+                log.info("storing info about new interesting transaction")
+                log.warning("tx from: {}".format(from_address))
+                log.warning("nonce: {}".format(transaction['nonce']))
+                log.warning("new tx hash: {}".format(transaction['hash']))
                 await con.execute("INSERT INTO transactions "
                                   "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id, last_status) "
                                   "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
