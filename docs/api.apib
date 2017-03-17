@@ -109,6 +109,7 @@ This has two different options. It either accepts the same transaction hash retu
 # Group Queries
 
 ## Transaction [/v1/tx/{tx_hash}]
+
 + Parameters
     + tx_hash (string) - Transaction hash
 
@@ -145,7 +146,38 @@ Returns the details of a transaction.
             ]
         }
 
+## SOFA Payment [/v1/tx/{tx_hash}?format=sofa]
+
++ Parameters
+    + tx_hash (string) - Transaction hash
+
+### Get Transaction [GET]
+
+Returns the details of a transaction as a SOFA message.
+
++ Response 200 (application/json)
+
+        SOFA::Payment:{
+            "value": "0x02540be400",
+            "toAddress": "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf",
+            "fromAddress": "0xde3d2d9dd52ea80f7799ef4791063a5458d13913",
+            "txHash": "0x2f321aa116146a9bc62b61c76508295f708f42d56340c9e613ebfc27e33f240c"
+        }
+
++ Response 404 (application/json)
+
+        {
+            "errors": [
+                {
+                    "id": "not_found",
+                    "message": "Not Found"
+                }
+            ]
+        }
+
+
 ## Get Address Balance [/v1/balance/{address}]
+
 + Parameters
     + address (string) - Ethereum address
 

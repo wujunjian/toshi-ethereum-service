@@ -5,6 +5,7 @@ from asyncbb.ethereum.mixin import EthereumMixin
 from asyncbb.errors import JsonRPCError
 from asyncbb.redis import RedisMixin
 
+from tokenbrowser.sofa import SofaPayment
 from tokenservices.handlers import RequestVerificationMixin
 
 from .mixins import BalanceMixin
@@ -63,9 +64,11 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
             "tx_hash": result
         })
 
-class TransactionHandler(EthereumMixin, BaseHandler):
+class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
     async def get(self, tx_hash):
+
+        format = self.get_query_argument('format', 'rpc')
 
         try:
             tx = await TokenEthJsonRPC(None, self.application).get_transaction(tx_hash)
@@ -74,7 +77,22 @@ class TransactionHandler(EthereumMixin, BaseHandler):
 
         if tx is None:
             raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
-        self.write(tx)
+
+        if format.lower() == 'sofa':
+
+            async with self.db:
+                row = await self.db.fetchrow("SELECT * FROM transactions where transaction_hash = $1",
+                                             tx_hash)
+            if row is not None and row['error'] is not None:
+                tx['error'] = row['error']
+            payment = SofaPayment.from_transaction(tx)
+            message = payment.render()
+            self.set_header('Content-Type', 'text/plain')
+            self.write(message.encode('utf-8'))
+
+        else:
+
+            self.write(tx)
 
 class TransactionNotificationRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 
