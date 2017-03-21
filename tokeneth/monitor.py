@@ -161,6 +161,7 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
             return
 
         self._filter_poll_process = asyncio.Future()
+        new_pending_transactions = None
         if not self._shutdown:
 
             if self._new_pending_transaction_filter_id is not None:
@@ -171,7 +172,6 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                     self.unmatched_transactions.update({tx_hash: 0 for tx_hash in new_pending_transactions})
                 except JSONRPC_ERRORS:
                     log.exception("WARNING: unable to connect to server")
-                    new_pending_transactions = None
 
         if new_pending_transactions is None:
             await self.register_filters()
