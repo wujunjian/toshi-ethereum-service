@@ -148,6 +148,21 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         from_address = data_encoder(tx.sender)
         to_address = data_encoder(tx.to)
 
+        # prevent spamming of transactions with the same nonce from the same sender
+        lock = self.redis.set("lock:{}:{}".format(from_address, tx.nonce), True, nx=True, ex=5)
+        if lock is None:
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
+
+        # disallow transaction overwriting for known transactions
+        async with self.db:
+            existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
+                                              "from_address = $1 AND nonce = $2",
+                                              from_address, tx.nonce)
+        if existing:
+            # debugging checks
+            existing_tx = await self.eth.eth_getTransactionByHash(existing['transaction_hash'])
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
+
         # make sure the account has enough funds for the transaction
         network_balance, balance = await self.get_balances(from_address, ignore_pending_recieved=True)
 

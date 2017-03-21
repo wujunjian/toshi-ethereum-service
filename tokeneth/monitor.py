@@ -1,4 +1,5 @@
 import asyncio
+import asyncpg
 import time
 import tornado.httpclient
 from tornado.ioloop import IOLoop
@@ -331,12 +332,19 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 log.warning("tx from: {}".format(from_address))
                 log.warning("nonce: {}".format(transaction['nonce']))
                 log.warning("new tx hash: {}".format(transaction['hash']))
-                await con.execute("INSERT INTO transactions "
-                                  "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id, last_status) "
-                                  "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                                  transaction['hash'], from_address, to_address, parse_int(transaction['nonce']), str(parse_int(transaction['value'])),
-                                  str(parse_int(transaction['gas']) * parse_int(transaction['gasPrice'])),
-                                  sender_token_id, 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
+
+                # this could potentially be an overwrite of an overwrite putting the original
+                # transaction back in as a non-error, in this case the last_status value is
+                # simply updated from the original tx
+                await con.execute(
+                    "INSERT INTO transactions "
+                    "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id, last_status) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+                    "ON CONFLICT (transaction_hash) DO UPDATE "
+                    "SET last_status = EXCLUDED.last_status",
+                    transaction['hash'], from_address, to_address, parse_int(transaction['nonce']), str(parse_int(transaction['value'])),
+                    str(parse_int(transaction['gas']) * parse_int(transaction['gasPrice'])),
+                    sender_token_id, 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
 
         # if the tx was overwritten, send the tx cancel message first
         if overwritten_tx_hash:

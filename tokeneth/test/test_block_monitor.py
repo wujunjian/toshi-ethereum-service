@@ -1,19 +1,19 @@
-import unittest
 import asyncio
 import tokeneth.monitor
 import warnings
 
-from tokenservices.test.base import AsyncHandlerTest
-from tokeneth.app import urls
 from tornado.escape import json_decode
 from tornado.testing import gen_test
 from asyncbb.test.database import requires_database
 from asyncbb.test.redis import requires_redis
+from asyncbb.ethereum.client import JsonRPCClient
 from asyncbb.ethereum.test.parity import requires_parity
 from asyncbb.ethereum.test.faucet import FaucetMixin
 from tokenbrowser.tx import sign_transaction, decode_transaction, signature_from_transaction
 from tokenbrowser.sofa import SofaPayment, parse_sofa_message
-from ethutils import private_key_to_address, data_encoder
+from ethutils import data_encoder
+
+from tokeneth.test.base import requires_block_monitor, EthServiceBaseTest
 
 from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -23,42 +23,6 @@ from tokeneth.test.test_transaction import (
 )
 from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
-
-def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
-    """Used to ensure all database connections are returned to the pool
-    before finishing the test"""
-
-    def wrap(fn):
-
-        async def wrapper(self, *args, **kwargs):
-
-            if 'ethereum' not in self._app.config:
-                raise Exception("Missing ethereum config from setup")
-
-            self._app.monitor = cls(self._app.connection_pool, self._app.config['ethereum']['url'])
-
-            if begin_started:
-                await self._app.monitor.start()
-
-            if pass_monitor:
-                if pass_monitor is True:
-                    kwargs['monitor'] = self._app.monitor
-                else:
-                    kwargs[pass_monitor] = self._app.monitor
-
-            try:
-                f = fn(self, *args, **kwargs)
-                if asyncio.iscoroutine(f):
-                    await f
-            finally:
-                await self._app.monitor.shutdown()
-
-        return wrapper
-
-    if func is not None:
-        return wrap(func)
-    else:
-        return wrap
 
 class SimpleBlockMonitor(tokeneth.monitor.BlockMonitor):
 
@@ -87,14 +51,7 @@ class MockPushClientBlockMonitor(tokeneth.monitor.BlockMonitor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, pushclient=MockPushClient(), **kwargs)
 
-class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
+class SimpleMonitorTest(FaucetMixin, EthServiceBaseTest):
 
     @gen_test(timeout=60)
     @requires_database
@@ -156,28 +113,7 @@ class SimpleMonitorTest(FaucetMixin, AsyncHandlerTest):
         self.assertNotEqual(got_unconfirmed, 0)
 
 
-class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
-
-    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None):
-        while True:
-            resp = await self.fetch("/tx/{}".format(tx_hash))
-            self.assertEqual(resp.code, 200)
-            body = json_decode(resp.body)
-            if body is None or body['blockNumber'] is None:
-                if interval_check_callback:
-                    f = interval_check_callback()
-                    if asyncio.iscoroutine(f):
-                        await f
-                await asyncio.sleep(1)
-            else:
-                return body
+class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
 
     @gen_test(timeout=30)
     @requires_database
@@ -444,42 +380,7 @@ class TestSendGCMPushNotification(FaucetMixin, AsyncHandlerTest):
             if message['status'] == "confirmed":
                 break
 
-class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
-
-    async def send_tx(self, from_key, to_addr, val):
-        from_addr = private_key_to_address(from_key)
-        body = {
-            "from": from_addr,
-            "to": to_addr,
-            "value": val
-        }
-
-        resp = await self.fetch("/tx/skel", method="POST", body=body)
-
-        self.assertResponseCodeEqual(resp, 200, resp.body)
-
-        body = json_decode(resp.body)
-
-        tx = sign_transaction(body['tx'], TEST_ID_KEY)
-
-        body = {
-            "tx": tx
-        }
-
-        resp = await self.fetch("/tx", method="POST", body=body)
-
-        self.assertResponseCodeEqual(resp, 200, resp.body)
-
-        body = json_decode(resp.body)
-        tx_hash = body['tx_hash']
-        return tx_hash
+class MonitorErrorsTest(FaucetMixin, EthServiceBaseTest):
 
     @gen_test(timeout=30)
     @requires_database
@@ -487,6 +388,9 @@ class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
     @requires_parity(pass_args=True)
     @requires_block_monitor(cls=SimpleBlockMonitor, pass_monitor=True, begin_started=False)
     async def test_get_block_confirmation(self, *, parity, ethminer, monitor):
+
+        """Tests that the block monitor recovers correctly after errors
+        in the ethereum node"""
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
         val = 761751855997712
@@ -510,3 +414,148 @@ class MonitorErrorsTest(FaucetMixin, AsyncHandlerTest):
         tx = await monitor.confirmation_queue.get()
 
         self.assertIsNotNone(tx)
+
+class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity(pass_args=True)
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_transaction_overwrite(self, *, ethminer, parity, monitor):
+        # make sure no blocks are confirmed for the meantime
+        ethminer.pause()
+
+        # set up pn registrations
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO notification_registrations (token_id, eth_address) VALUES ($1, $2)",
+                              TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
+            await con.fetch("INSERT INTO push_notification_registrations (service, registration_id, token_id) VALUES ($1, $2, $3)",
+                            'gcm', TEST_GCM_ID, TEST_ID_ADDRESS)
+
+        # get tx skeleton
+        tx1 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, 10 ** 18)
+        tx2 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, 0)
+        self.assertEqual(decode_transaction(tx1).nonce, decode_transaction(tx2).nonce)
+        # sign and send
+        tx1_hash = await self.sign_and_send_tx(FAUCET_PRIVATE_KEY, tx1)
+
+        # wait for tx PN
+        pn = await monitor.pushclient.send_queue.get()
+        # allow other processing to complete
+        await asyncio.sleep(0.5)
+
+        # send tx2 manually
+        rpcclient = JsonRPCClient(parity.dsn()['url'])
+        tx2_hash = await rpcclient.eth_sendRawTransaction(sign_transaction(tx2, FAUCET_PRIVATE_KEY))
+
+        # we expect 2 push notifications, one for the error of the
+        # overwritten txz and one for the new tx
+        pn = await monitor.pushclient.send_queue.get()
+        pn = await monitor.pushclient.send_queue.get()
+        # allow other processing to complete
+        await asyncio.sleep(0.5)
+
+        async with self.pool.acquire() as con:
+            tx1_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx1_hash)
+            tx2_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx2_hash)
+
+        self.assertEqual(tx1_row['last_status'], 'error')
+        self.assertEqual(tx2_row['last_status'], 'unconfirmed')
+
+    @gen_test(timeout=60)
+    @requires_database
+    @requires_redis
+    @requires_parity(pass_args=True)
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_transaction_overwrite_spam(self, *, ethminer, parity, monitor):
+
+        no_to_spam = 10
+
+        # make sure no blocks are confirmed
+        ethminer.pause()
+
+        # set up pn registrations
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO notification_registrations (token_id, eth_address) VALUES ($1, $2)",
+                              TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
+            await con.fetch("INSERT INTO push_notification_registrations (service, registration_id, token_id) VALUES ($1, $2, $3)",
+                            'gcm', TEST_GCM_ID, TEST_ID_ADDRESS)
+
+        # send initial tx
+        tx1 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, 10 ** 18)
+
+        txs = []
+        for i in range(no_to_spam):
+            tx = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, i)
+            txs.append(sign_transaction(tx, FAUCET_PRIVATE_KEY))
+
+        tx1_hash = await self.sign_and_send_tx(FAUCET_PRIVATE_KEY, tx1)
+        # wait for tx PN
+        pn = await monitor.pushclient.send_queue.get()
+
+        # spam send txs manually
+        rpcclient = JsonRPCClient(parity.dsn()['url'])
+        for ntx in txs:
+            await rpcclient.eth_sendRawTransaction(ntx)
+            # force the pending transaction filter polling to
+            # run after each new transaction is posted
+            await monitor.filter_poll()
+            # we expect two pns for each overwrite
+            pn = await monitor.pushclient.send_queue.get()
+            pn = await monitor.pushclient.send_queue.get()
+
+        async with self.pool.acquire() as con:
+            tx1_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx1_hash)
+            tx_rows = await con.fetchrow("SELECT COUNT(*) FROM transactions")
+            tx_rows_error = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE last_status = 'error'")
+
+        self.assertEqual(tx1_row['last_status'], 'error')
+
+        self.assertEqual(tx_rows['count'], no_to_spam + 1)
+        self.assertEqual(tx_rows_error['count'], no_to_spam)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity(pass_args=True)
+    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
+    async def test_resend_old_after_overwrite(self, *, ethminer, parity, monitor):
+        # make sure no blocks are confirmed for the meantime
+        ethminer.pause()
+
+        # set up pn registrations
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO notification_registrations (token_id, eth_address) VALUES ($1, $2)",
+                              TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
+            await con.fetch("INSERT INTO push_notification_registrations (service, registration_id, token_id) VALUES ($1, $2, $3)",
+                            'gcm', TEST_GCM_ID, TEST_ID_ADDRESS)
+
+        # get tx skeleton
+        tx1 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, 10 ** 18)
+        tx2 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_WALLET_ADDRESS, 0)
+        self.assertEqual(decode_transaction(tx1).nonce, decode_transaction(tx2).nonce)
+        # sign and send
+        tx1_hash = await self.sign_and_send_tx(FAUCET_PRIVATE_KEY, tx1)
+        # wait for tx PN
+        await monitor.pushclient.send_queue.get()
+
+        # send tx2 manually
+        rpcclient = JsonRPCClient(parity.dsn()['url'])
+        tx2_hash = await rpcclient.eth_sendRawTransaction(sign_transaction(tx2, FAUCET_PRIVATE_KEY))
+        await monitor.filter_poll()
+        await monitor.pushclient.send_queue.get()
+        await monitor.pushclient.send_queue.get()
+
+        # resend tx1 manually
+        tx1_hash = await rpcclient.eth_sendRawTransaction(sign_transaction(tx1, FAUCET_PRIVATE_KEY))
+        await monitor.filter_poll()
+        await monitor.pushclient.send_queue.get()
+        await monitor.pushclient.send_queue.get()
+
+        async with self.pool.acquire() as con:
+            tx1_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx1_hash)
+            tx2_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx2_hash)
+
+        self.assertEqual(tx1_row['last_status'], 'unconfirmed')
+        self.assertEqual(tx2_row['last_status'], 'error')
