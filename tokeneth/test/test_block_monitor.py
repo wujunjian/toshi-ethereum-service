@@ -544,14 +544,14 @@ class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
         rpcclient = JsonRPCClient(parity.dsn()['url'])
         tx2_hash = await rpcclient.eth_sendRawTransaction(sign_transaction(tx2, FAUCET_PRIVATE_KEY))
         await monitor.filter_poll()
-        await monitor.pushclient.send_queue.get()
-        await monitor.pushclient.send_queue.get()
+        _, pn = await monitor.pushclient.send_queue.get()
+        _, pn = await monitor.pushclient.send_queue.get()
 
         # resend tx1 manually
         tx1_hash = await rpcclient.eth_sendRawTransaction(sign_transaction(tx1, FAUCET_PRIVATE_KEY))
         await monitor.filter_poll()
-        await monitor.pushclient.send_queue.get()
-        await monitor.pushclient.send_queue.get()
+        _, pn = await monitor.pushclient.send_queue.get()
+        _, pn = await monitor.pushclient.send_queue.get()
 
         async with self.pool.acquire() as con:
             tx1_row = await con.fetchrow("SELECT * FROM transactions WHERE transaction_hash = $1", tx1_hash)

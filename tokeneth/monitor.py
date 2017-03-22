@@ -261,9 +261,28 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         sender_token_id = None
         async with self.pool.acquire() as con:
             # find if we have a record of this tx by checking the from address and nonce
-            db_tx = await con.fetchrow("SELECT * FROM transactions WHERE "
-                                       "from_address = $1 AND nonce = $2",
-                                       from_address, parse_int(transaction['nonce']))
+            db_txs = await con.fetch("SELECT * FROM transactions WHERE "
+                                     "from_address = $1 AND nonce = $2",
+                                     from_address, parse_int(transaction['nonce']))
+            if len(db_txs) > 1:
+                # see if one has the same hash
+                db_tx = await con.fetchrow("SELECT * FROM transactions WHERE "
+                                           "from_address = $1 AND nonce = $2 AND transaction_hash = $3 AND (last_status != $4 OR last_status IS NULL)",
+                                           from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                if db_tx is None:
+                    # find if there are any that aren't marked as error
+                    no_error = await con.fetch("SELECT * FROM transactions WHERE "
+                                               "from_address = $1 AND nonce = $2 AND transaction_hash != $3 AND (last_status != $4 OR last_status IS NULL)",
+                                               from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                    if len(no_error) == 1:
+                        db_tx = no_error[0]
+                    elif len(no_error) != 0:
+                        log.warning("Multiple transactions from '{}' exist with nonce '{}' in unknown state")
+
+            elif len(db_txs) == 1:
+                db_tx = db_txs[0]
+            else:
+                db_tx = None
 
             to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", to_address)
             to_ids = [row['token_id'] for row in to_ids]
@@ -407,13 +426,20 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 "AND created < (now() AT TIME ZONE 'utc') - interval '5 minutes'"
             )
         for row in rows:
-
             # check if the transaction is still in the network
             tx = await self.eth.eth_getTransactionByHash(row['transaction_hash'])
             if tx is None:
                 # the transaction no longer exists on the network
-                tx['error'] = True
-                await self.send_transaction_notifications(tx)
+                await self.send_transaction_notifications({
+                    'hash': row['transaction_hash'],
+                    'to': row['to_address'],
+                    'from': row['from_address'],
+                    'blockNumber': None,
+                    'value': row['value'],
+                    'nonce': row['nonce'],
+                    'gas': row['estimated_gas_cost'],
+                    'gasPrice': '0x1',
+                    'error': True})
             else:
                 # check if the transactions has actually been confirmed
                 if tx['blockNumber'] is not None:
