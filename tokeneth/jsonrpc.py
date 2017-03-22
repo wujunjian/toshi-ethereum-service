@@ -156,8 +156,8 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         # disallow transaction overwriting for known transactions
         async with self.db:
             existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
-                                              "from_address = $1 AND nonce = $2",
-                                              from_address, tx.nonce)
+                                              "from_address = $1 AND nonce = $2 AND last_status != $3",
+                                              from_address, tx.nonce, 'error')
         if existing:
             # debugging checks
             existing_tx = await self.eth.eth_getTransactionByHash(existing['transaction_hash'])

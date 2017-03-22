@@ -45,6 +45,8 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
         if not hasattr(self, '_startup_future'):
             self._startup_future = asyncio.Future()
             self.ioloop.add_callback(self._initialise)
+            # run sanity check
+            self.ioloop.add_callback(self.sanity_check)
         return self._startup_future
 
     async def _initialise(self):
@@ -277,54 +279,43 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
                 sender_token_id = db_tx['sender_token_id']
                 # make sure the tx hash we have already matches this
                 if transaction['hash'] != db_tx['transaction_hash']:
-                    log.warning("found overwritten transaction!")
-                    log.warning("tx from: {}".format(from_address))
-                    log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
-                    log.warning("old tx hash: {}".format(db_tx['transaction_hash']))
-                    log.warning("new tx hash: {}".format(transaction['hash']))
-                    # if not we have an overwrite
-                    overwritten_tx_hash = db_tx['transaction_hash']
-                    overwritten_tx_hash_to_address = db_tx['to_address']
-                    if to_address != overwritten_tx_hash_to_address:
-                        old_to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", db_tx['to_address'])
-                        old_to_ids = [row['token_id'] for row in old_to_ids]
-                        overwritten_tx_token_ids.extend(old_to_ids)
-                    else:
-                        overwritten_tx_token_ids.extend(to_ids)
-                    overwritten_tx_token_ids.extend(from_ids)
-                    await con.execute("UPDATE transactions SET error = 1, last_status = 'error' WHERE transaction_hash = $1", db_tx['transaction_hash'])
-                    # reset db_tx so we store it later
+                    # only worry about this if it wasn't set as an error already
+                    if db_tx['last_status'] != 'error':
+                        log.warning("found overwritten transaction!")
+                        log.warning("tx from: {}".format(from_address))
+                        log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
+                        log.warning("old tx hash: {}".format(db_tx['transaction_hash']))
+                        log.warning("new tx hash: {}".format(transaction['hash']))
+                        log.warning("old tx status: {}".format(db_tx['last_status']))
+
+                        # if not we have an overwrite
+                        overwritten_tx_hash = db_tx['transaction_hash']
+                        overwritten_tx_hash_to_address = db_tx['to_address']
+                        if to_address != overwritten_tx_hash_to_address:
+                            old_to_ids = await con.fetch("SELECT token_id FROM notification_registrations WHERE eth_address = $1", db_tx['to_address'])
+                            old_to_ids = [row['token_id'] for row in old_to_ids]
+                            overwritten_tx_token_ids.extend(old_to_ids)
+                        else:
+                            overwritten_tx_token_ids.extend(to_ids)
+                        overwritten_tx_token_ids.extend(from_ids)
+                        await con.execute("UPDATE transactions SET error = 1, last_status = 'error' WHERE transaction_hash = $1", db_tx['transaction_hash'])
+                    # reset db_tx so we store the new tx later on
                     db_tx = None
                 else:
+                    new_status = 'error' if 'error' in transaction else ('confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
                     # check last_status to see if we need to send this as a pn or not
                     # and update the status
-                    if db_tx['last_status'] is None:
-                        log.info("setting unconfirmed status on transaction: {}".format(transaction['hash']))
-                        # we've not seen this tx here before at all, send the PN!
-                        await con.execute("UPDATE transactions SET {}"
-                                          "last_status = $1 "
-                                          "WHERE transaction_hash = $2".format(
-                                              "confirmed = (now() AT TIME ZONE 'utc'), " if transaction['blockNumber'] is not None else ""),
-                                          'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed',
-                                          transaction['hash'])
-                    elif db_tx['last_status'] == 'unconfirmed':
-                        if transaction['blockNumber'] is None:
-                            # we've already sent a pending transaction notification
-                            # so there's no need to send another
-                            return
-                        else:
-                            log.info("setting confirmed status on transaction: {}".format(transaction['hash']))
-                            # if we had this stored as an unconfirmed transaction then mark it confirmed
-                            await con.execute("UPDATE transactions SET confirmed = (now() AT TIME ZONE 'utc'), "
-                                              "last_status = 'confirmed' "
-                                              "WHERE transaction_hash = $1",
-                                              transaction['hash'])
-                    elif db_tx['last_status'] in ["confirmed", "error"]:
-                        log.warning("got request to resend PNs for tx with last status '{}' and new status '{}'".format(
-                            db_tx['last_status'], 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed'))
+                    if db_tx['last_status'] == new_status:
+                        # we've already sent a notification for this state
+                        # so there's no need to send another
                         return
-                    else:
-                        log.warning("got unknown `last_status` value '{}' for tx: {}".format(db_tx['last_status'], transaction['hash']))
+                    log.info("setting {} status on transaction: {}".format(new_status, transaction['hash']))
+                    await con.execute("UPDATE transactions SET {}"
+                                      "last_status = $1 "
+                                      "WHERE transaction_hash = $2".format(
+                                          "confirmed = (now() AT TIME ZONE 'utc'), " if new_status == 'confirmed' else ''),
+                                      new_status,
+                                      transaction['hash'])
 
             # if there are interested parties in the new tx, add it to the database
             if db_tx is None and (token_ids or any(addr in self.callbacks for addr in [to_address, from_address])):
@@ -407,3 +398,35 @@ class BlockMonitor(DatabaseMixin, BalanceMixin):
             self.callbacks[eth_address].remove(callback)
             if not self.callbacks[eth_address]:
                 self.callbacks.pop(eth_address)
+
+    async def sanity_check(self):
+
+        async with self.pool.acquire() as con:
+            rows = await con.fetch(
+                "SELECT * FROM transactions WHERE (last_status = 'unconfirmed' OR last_status IS NULL) "
+                "AND created < (now() AT TIME ZONE 'utc') - interval '5 minutes'"
+            )
+        for row in rows:
+
+            # check if the transaction is still in the network
+            tx = await self.eth.eth_getTransactionByHash(row['transaction_hash'])
+            if tx is None:
+                # the transaction no longer exists on the network
+                tx['error'] = True
+                await self.send_transaction_notifications(tx)
+            else:
+                # check if the transactions has actually been confirmed
+                if tx['blockNumber'] is not None:
+                    await self.send_transaction_notifications(tx)
+                else:
+                    # update the nonce if it doesn't match what is in the database
+                    # (NOTE: this shouldn't really be the case ever, this is mainly
+                    # for checking on tx's from before the nonce was stored)
+                    if parse_int(tx['nonce']) != row['nonce']:
+                        log.info("Fixing stored nonce value for tx: {} (old: {}, new: {})".format(
+                            tx['hash'], row['nonce'], parse_int(tx['nonce'])))
+                        async with self.pool.acquire() as con:
+                            await con.execute("UPDATE transactions SET nonce = $1 WHERE transaction_hash = $2",
+                                              parse_int(tx['nonce']), row['transaction_hash'])
+                    # log that there is an error
+                    log.error("Found long standing unconfirmed transaction: {}".format(tx['hash']))
