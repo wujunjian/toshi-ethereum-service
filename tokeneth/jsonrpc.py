@@ -5,6 +5,7 @@ from asyncbb.database import DatabaseMixin
 from asyncbb.ethereum.mixin import EthereumMixin
 from asyncbb.redis import RedisMixin
 from ethutils import data_decoder, data_encoder
+from functools import partial
 from tornado.ioloop import IOLoop
 from tokenbrowser.utils import (
     validate_address, parse_int, validate_signature, validate_transaction_hash
@@ -19,6 +20,7 @@ from tokenbrowser.tx import (
 from tokenservices.log import log
 
 from .mixins import BalanceMixin
+from .utils import RedisLock
 
 class JsonRPCInsufficientFundsError(JsonRPCError):
     def __init__(self, *, request=None, data=None):
@@ -149,71 +151,71 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         to_address = data_encoder(tx.to)
 
         # prevent spamming of transactions with the same nonce from the same sender
-        lock = self.redis.set("lock:{}:{}".format(from_address, tx.nonce), True, nx=True, ex=5)
-        if lock is None:
-            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
+        with RedisLock(self.redis, "{}:{}".format(from_address, tx.nonce),
+                       raise_when_locked=partial(JsonRPCInvalidParamsError, data={'id': 'invalid_nonce', 'message': 'Nonce already used'}),
+                       ex=5):
 
-        # disallow transaction overwriting for known transactions
-        async with self.db:
-            existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
-                                              "from_address = $1 AND nonce = $2 AND last_status != $3",
-                                              from_address, tx.nonce, 'error')
-        if existing:
-            # debugging checks
-            existing_tx = await self.eth.eth_getTransactionByHash(existing['transaction_hash'])
-            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
+            # disallow transaction overwriting for known transactions
+            async with self.db:
+                existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
+                                                  "from_address = $1 AND nonce = $2 AND last_status != $3",
+                                                  from_address, tx.nonce, 'error')
+            if existing:
+                # debugging checks
+                existing_tx = await self.eth.eth_getTransactionByHash(existing['transaction_hash'])
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
 
-        # make sure the account has enough funds for the transaction
-        network_balance, balance = await self.get_balances(from_address, ignore_pending_recieved=True)
+            # make sure the account has enough funds for the transaction
+            network_balance, balance = await self.get_balances(from_address, ignore_pending_recieved=True)
 
-        log.info("Attempting to send transaction\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
-            from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
+            log.info("Attempting to send transaction\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
+                from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
 
-        if balance < (tx.value + (tx.startgas * tx.gasprice)):
-            raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
+            if balance < (tx.value + (tx.startgas * tx.gasprice)):
+                raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
 
-        # validate the nonce
-        c_nonce = self.redis.get("nonce:{}".format(from_address))
-        if c_nonce:
-            c_nonce = int(c_nonce)
-        # get the network's value too
-        nw_nonce = await self.eth.eth_getTransactionCount(from_address)
-        if c_nonce is None or nw_nonce > c_nonce:
-            c_nonce = nw_nonce
+            # validate the nonce
+            c_nonce = self.redis.get("nonce:{}".format(from_address))
+            if c_nonce:
+                c_nonce = int(c_nonce)
+            # get the network's value too
+            nw_nonce = await self.eth.eth_getTransactionCount(from_address)
+            if c_nonce is None or nw_nonce > c_nonce:
+                c_nonce = nw_nonce
 
-        if tx.nonce < c_nonce:
-            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
-        if tx.nonce > c_nonce:
-            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
+            if tx.nonce < c_nonce:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
+            if tx.nonce > c_nonce:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
 
-        # send the transaction to the network
-        try:
-            tx_encoded = encode_transaction(tx)
-            tx_hash = await self.eth.eth_sendRawTransaction(tx_encoded)
-        except JsonRPCError as e:
-            log.error(e.format())
-            raise JsonRPCInternalError(data={
-                'id': 'unexpected_error',
-                'message': 'An error occured communicating with the ethereum network, try again later'
-            })
+            # send the transaction to the network
+            try:
+                tx_encoded = encode_transaction(tx)
+                tx_hash = await self.eth.eth_sendRawTransaction(tx_encoded)
+            except JsonRPCError as e:
+                log.error(e.format())
+                raise JsonRPCInternalError(data={
+                    'id': 'unexpected_error',
+                    'message': 'An error occured communicating with the ethereum network, try again later'
+                })
 
-        # cache nonce
-        self.redis.set("nonce:{}".format(from_address), tx.nonce + 1)
-        # add tx to database
-        async with self.db:
-            await self.db.execute(
-                "INSERT INTO transactions "
-                "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                tx_hash, from_address, to_address, tx.nonce, str(tx.value), str(tx.startgas * tx.gasprice), self.user_token_id)
-            await self.db.commit()
+            # cache nonce
+            self.redis.set("nonce:{}".format(from_address), tx.nonce + 1)
+            # add tx to database
+            async with self.db:
+                await self.db.execute(
+                    "INSERT INTO transactions "
+                    "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    tx_hash, from_address, to_address, tx.nonce, str(tx.value), str(tx.startgas * tx.gasprice), self.user_token_id)
+                await self.db.commit()
 
-        # if there is a block monitor, force send PNs for this without
-        # waiting for the node to see it
-        if hasattr(self.application, 'monitor'):
-            txjson = transaction_to_json(tx)
-            assert txjson['hash'] == tx_hash
-            IOLoop.current().add_callback(self.application.monitor.send_transaction_notifications, txjson)
+            # if there is a block monitor, force send PNs for this without
+            # waiting for the node to see it
+            if hasattr(self.application, 'monitor'):
+                txjson = transaction_to_json(tx)
+                assert txjson['hash'] == tx_hash
+                IOLoop.current().add_callback(self.application.monitor.send_transaction_notifications, txjson)
 
         return tx_hash
 
