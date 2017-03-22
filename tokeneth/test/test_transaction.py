@@ -367,3 +367,24 @@ class TransactionTest(EthServiceBaseTest):
                 bad += 1
         self.assertEqual(ok, 1)
         self.assertEqual(bad, no_tests - 1)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
+    async def test_prevent_out_of_order_txs(self):
+        """Spams transactions with the same nonce, and ensures the server rejects all but one"""
+
+        tx1 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_ADDRESS, 10 ** 10)
+        dtx1 = decode_transaction(tx1)
+        stx1 = sign_transaction(tx1, FAUCET_PRIVATE_KEY)
+        tx2 = await self.get_tx_skel(FAUCET_PRIVATE_KEY, TEST_ADDRESS, 10 ** 10, dtx1.nonce + 1)
+        stx2 = sign_transaction(tx2, FAUCET_PRIVATE_KEY)
+
+        resp = await self.fetch("/tx", method="POST", body={"tx": stx2})
+        self.assertEqual(resp.code, 400, resp.body)
+
+        resp = await self.fetch("/tx", method="POST", body={"tx": stx1})
+        self.assertEqual(resp.code, 200, resp.body)
+        resp = await self.fetch("/tx", method="POST", body={"tx": stx2})
+        self.assertEqual(resp.code, 200, resp.body)

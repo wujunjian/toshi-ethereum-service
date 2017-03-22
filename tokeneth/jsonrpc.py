@@ -183,15 +183,15 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
 
         if tx.nonce < c_nonce:
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
-        # NOTE: since posting a nonce that is higher is valid we don't throw an error if it is much higher.
-        # However, the ethereum node wont broadcast a transaction to the network until the nonce values between
-        # it and the network value are filled in.
+        if tx.nonce > c_nonce:
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
 
         # send the transaction to the network
         try:
             tx_encoded = encode_transaction(tx)
             tx_hash = await self.eth.eth_sendRawTransaction(tx_encoded)
         except JsonRPCError as e:
+            log.error(e.format())
             raise JsonRPCInternalError(data={
                 'id': 'unexpected_error',
                 'message': 'An error occured communicating with the ethereum network, try again later'
