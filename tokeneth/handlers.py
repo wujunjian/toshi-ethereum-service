@@ -1,11 +1,12 @@
-from asyncbb.handlers import BaseHandler
-from asyncbb.errors import JSONHTTPError, JsonRPCInternalError
-from asyncbb.database import DatabaseMixin
-from asyncbb.ethereum.mixin import EthereumMixin
-from asyncbb.errors import JsonRPCError
-from asyncbb.redis import RedisMixin
+from tokenservices.handlers import BaseHandler
+from tokenservices.errors import JSONHTTPError
+from tokenservices.jsonrpc.errors import JsonRPCInternalError
+from tokenservices.database import DatabaseMixin
+from tokenservices.ethereum.mixin import EthereumMixin
+from tokenservices.jsonrpc.errors import JsonRPCError
+from tokenservices.redis import RedisMixin
 
-from tokenbrowser.sofa import SofaPayment
+from tokenservices.sofa import SofaPayment
 from tokenservices.handlers import RequestVerificationMixin
 
 from .mixins import BalanceMixin

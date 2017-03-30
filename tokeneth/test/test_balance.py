@@ -2,10 +2,10 @@ from tokenservices.test.base import AsyncHandlerTest
 from tokeneth.app import urls
 from tornado.escape import json_decode
 from tornado.testing import gen_test
-from asyncbb.test.database import requires_database
-from asyncbb.ethereum.test.parity import requires_parity
-from asyncbb.ethereum.test.faucet import FaucetMixin, FAUCET_ADDRESS
-from tokenbrowser.utils import parse_int
+from tokenservices.test.database import requires_database
+from tokenservices.test.ethereum.parity import requires_parity
+from tokenservices.test.ethereum.faucet import FaucetMixin, FAUCET_ADDRESS
+from tokenservices.utils import parse_int
 
 class BalanceTest(FaucetMixin, AsyncHandlerTest):
 

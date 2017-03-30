@@ -4,14 +4,14 @@ import warnings
 
 from tornado.escape import json_decode
 from tornado.testing import gen_test
-from asyncbb.test.database import requires_database
-from asyncbb.test.redis import requires_redis
-from asyncbb.ethereum.client import JsonRPCClient
-from asyncbb.ethereum.test.parity import requires_parity
-from asyncbb.ethereum.test.faucet import FaucetMixin
-from tokenbrowser.tx import sign_transaction, decode_transaction, signature_from_transaction
-from tokenbrowser.sofa import SofaPayment, parse_sofa_message
-from ethutils import data_encoder
+from tokenservices.test.database import requires_database
+from tokenservices.test.redis import requires_redis
+from tokenservices.jsonrpc.client import JsonRPCClient
+from tokenservices.test.ethereum.parity import requires_parity
+from tokenservices.test.ethereum.faucet import FaucetMixin
+from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction
+from tokenservices.sofa import SofaPayment, parse_sofa_message
+from tokenservices.ethereum.utils import data_encoder
 
 from tokeneth.test.base import requires_block_monitor, EthServiceBaseTest
 
@@ -21,7 +21,7 @@ from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
 class SimpleBlockMonitor(tokeneth.monitor.BlockMonitor):

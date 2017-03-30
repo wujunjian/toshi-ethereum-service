@@ -4,12 +4,12 @@ import tornado.ioloop
 import tornado.websocket
 import tornado.web
 
-from asyncbb.database import DatabaseMixin
+from tokenservices.database import DatabaseMixin
 from tokenservices.handlers import RequestVerificationMixin
-from tokenbrowser.utils import validate_address
+from tokenservices.utils import validate_address
 
 from tokenservices.log import log
-from asyncbb.errors import JsonRPCInvalidParamsError
+from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError
 from .jsonrpc import TokenEthJsonRPC
 
 class WebsocketJsonRPCHandler(TokenEthJsonRPC):

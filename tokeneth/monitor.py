@@ -1,14 +1,13 @@
 import asyncio
-import asyncpg
 import time
 import tornado.httpclient
 from tornado.ioloop import IOLoop
-from asyncbb.ethereum.client import JsonRPCClient
-from tokenbrowser.sofa import SofaPayment
-from asyncbb.log import logging
-from asyncbb.database import DatabaseMixin
+from tokenservices.jsonrpc.client import JsonRPCClient
+from tokenservices.sofa import SofaPayment
+from tokenservices.log import logging
+from tokenservices.database import DatabaseMixin
 
-from tokenbrowser.utils import parse_int
+from tokenservices.utils import parse_int
 
 from .handlers import BalanceMixin
 

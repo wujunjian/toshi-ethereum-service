@@ -1,13 +1,13 @@
 import random
 
 from tornado.testing import gen_test
-from asyncbb.test.database import requires_database
-from asyncbb.test.redis import requires_redis
-from asyncbb.ethereum.test.parity import requires_parity
-from asyncbb.ethereum.test.faucet import FaucetMixin
+from tokenservices.test.database import requires_database
+from tokenservices.test.redis import requires_redis
+from tokenservices.test.ethereum.parity import requires_parity
+from tokenservices.test.ethereum.faucet import FaucetMixin
 from datetime import datetime, timedelta
-from tokenbrowser.tx import decode_transaction
-from ethutils import data_encoder
+from tokenservices.ethereum.tx import decode_transaction
+from tokenservices.ethereum.utils import data_encoder
 
 from tokeneth.test.base import requires_block_monitor, EthServiceBaseTest
 
@@ -17,7 +17,7 @@ from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from asyncbb.ethereum.test.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokeneth.test.test_block_monitor import MockPushClientBlockMonitor
 
 class TestSanityChecker(FaucetMixin, EthServiceBaseTest):

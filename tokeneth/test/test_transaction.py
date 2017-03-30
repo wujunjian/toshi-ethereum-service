@@ -6,12 +6,12 @@ from tornado.platform.asyncio import to_asyncio_future
 
 from tokeneth.app import urls
 from tokeneth.test.base import EthServiceBaseTest
-from asyncbb.test.database import requires_database
-from asyncbb.test.redis import requires_redis
-from asyncbb.ethereum.test.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenbrowser.request import sign_request
-from ethutils import data_decoder, data_encoder
-from tokenbrowser.tx import sign_transaction, decode_transaction, signature_from_transaction
+from tokenservices.test.database import requires_database
+from tokenservices.test.redis import requires_redis
+from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokenservices.request import sign_request
+from tokenservices.ethereum.utils import data_decoder, data_encoder
+from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"

@@ -4,12 +4,12 @@ from tornado.testing import gen_test
 
 from tokeneth.app import urls
 from tokenservices.test.base import AsyncHandlerTest
-from asyncbb.test.database import requires_database
-from asyncbb.test.redis import requires_redis
-from asyncbb.ethereum.test.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenbrowser.sofa import parse_sofa_message
-from ethutils import data_decoder
-from tokenbrowser.tx import sign_transaction
+from tokenservices.test.database import requires_database
+from tokenservices.test.redis import requires_redis
+from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokenservices.sofa import parse_sofa_message
+from tokenservices.ethereum.utils import data_decoder
+from tokenservices.ethereum.tx import sign_transaction
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"

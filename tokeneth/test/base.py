@@ -6,8 +6,8 @@ from tokenservices.test.base import AsyncHandlerTest
 from tokeneth.app import urls
 from tornado.escape import json_decode
 
-from ethutils import private_key_to_address, data_encoder
-from tokenbrowser.tx import sign_transaction
+from tokenservices.ethereum.utils import private_key_to_address, data_encoder
+from tokenservices.ethereum.tx import sign_transaction
 
 class EthServiceBaseTest(AsyncHandlerTest):
 

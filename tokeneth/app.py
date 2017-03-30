@@ -1,4 +1,4 @@
-import asyncbb.web
+import tokenservices.web
 import os
 
 from . import handlers
@@ -9,7 +9,7 @@ from tokenservices.push import PushServerClient, GCMHttpPushClient
 from tokenservices.handlers import GenerateTimestamp
 from configparser import SectionProxy
 
-from asyncbb.log import configure_logger
+from tokenservices.log import configure_logger
 from tokenservices.log import log as services_log
 
 urls = [
@@ -26,7 +26,7 @@ urls = [
     (r"^/v1/ws/?$", websocket.WebsocketHandler)
 ]
 
-class Application(asyncbb.web.Application):
+class Application(tokenservices.web.Application):
 
     def process_config(self):
         config = super(Application, self).process_config()
