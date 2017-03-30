@@ -5,6 +5,7 @@ machine:
     version: 6.7.0
   environment:
     PATH: "${PATH}:~/.yarn/bin"
+    STAGE: $CIRCLE_BRANCH
 
 dependencies:
   cache_directories:
@@ -19,6 +20,7 @@ dependencies:
     - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.6.5/x86_64-unknown-linux-gnu/parity_1.6.5_amd64.deb
     - sudo dpkg -i parity_1.6.5_amd64.deb
     - pip install -r requirements-testing.txt
+    - ./configure_environment.sh
   post:
     - pip install --upgrade -e git+ssh://git@github.com/tokenbrowser/token-services-lib.git@$CIRCLE_BRANCH#egg=token-services || true
     - if [ -z `which aglio` ]; then yarn global --cache-folder ~/.yarn/cache add aglio --prefix ~/.yarn; fi
