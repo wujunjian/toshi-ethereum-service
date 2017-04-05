@@ -131,19 +131,30 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
                 tx_sig = signature_from_transaction(tx)
                 if tx_sig != signature:
 
-                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_signature', 'message': 'Invalid Signature'})
+                    raise JsonRPCInvalidParamsError(data={
+                        'id': 'invalid_signature',
+                        'message': 'Invalid Signature: Signature in payload and signature of transaction do not match'
+                    })
         else:
 
             if signature is None:
                 raise JsonRPCInvalidParamsError(data={'id': 'missing_signature', 'message': 'Missing Signature'})
 
             if not validate_signature(signature):
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_signature', 'message': 'Invalid Signature'})
+                raise JsonRPCInvalidParamsError(data={
+                    'id': 'invalid_signature',
+                    'message': 'Invalid Signature: {}'.format(
+                        'Invalid length' if len(signature) != 132 else 'Invalid hex value')
+                })
 
             try:
                 signature = data_decoder(signature)
             except Exception:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_signature', 'message': 'Invalid Signature'})
+                log.exception("Unexpected error decoding valid signature: {}".format(signature))
+                raise JsonRPCInvalidParamsError(data={
+                    'id': 'invalid_signature',
+                    'message': 'Invalid Signature'
+                })
 
             add_signature_to_transaction(tx, signature)
 
