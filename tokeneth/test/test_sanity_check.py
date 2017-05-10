@@ -1,15 +1,12 @@
+import asyncio
 import random
 
 from tornado.testing import gen_test
-from tokenservices.test.database import requires_database
-from tokenservices.test.redis import requires_redis
-from tokenservices.test.ethereum.parity import requires_parity
-from tokenservices.test.ethereum.faucet import FaucetMixin
 from datetime import datetime, timedelta
 from tokenservices.ethereum.tx import decode_transaction
 from tokenservices.ethereum.utils import data_encoder
 
-from tokeneth.test.base import requires_block_monitor, EthServiceBaseTest
+from tokeneth.test.base import requires_full_stack, EthServiceBaseTest
 
 from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -18,16 +15,12 @@ from tokeneth.test.test_transaction import (
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
 from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokeneth.test.test_block_monitor import MockPushClientBlockMonitor
 
-class TestSanityChecker(FaucetMixin, EthServiceBaseTest):
+class TestSanityChecker(EthServiceBaseTest):
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_parity(pass_args=True)
-    @requires_block_monitor(cls=MockPushClientBlockMonitor, pass_monitor=True)
-    async def test_missing_txs(self, *, ethminer, parity, monitor):
+    @requires_full_stack(manager=True)
+    async def test_missing_txs(self, *, manager):
 
         values = []
         for i in range(10):
@@ -37,17 +30,19 @@ class TestSanityChecker(FaucetMixin, EthServiceBaseTest):
 
         async with self.pool.acquire() as con:
             await con.executemany(
-                "INSERT INTO transactions (transaction_hash, from_address, to_address, value, nonce, created) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
+                "INSERT INTO transactions (hash, from_address, to_address, value, nonce, created, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, 'unconfirmed')",
                 values)
-            count = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE (last_status != 'error' OR last_status IS NULL)")
-        self.assertEqual(count['count'], 10)
+            unconf_count = await con.fetchval("SELECT COUNT(*) FROM transactions WHERE status = 'unconfirmed'")
+        self.assertEqual(unconf_count, 10)
 
-        await monitor.sanity_check()
+        await manager.task_listener.call_task('sanity_check', 0)
+
+        await asyncio.sleep(1)
 
         async with self.pool.acquire() as con:
-            unconf_count = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE last_status = $1 OR last_status IS NULL", 'unconfirmed')
-            error_count = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE last_status = $1", 'error')
+            unconf_count = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE status = 'unconfirmed' OR status = 'queued' OR status IS NULL")
+            error_count = await con.fetchrow("SELECT COUNT(*) FROM transactions WHERE status = 'error'")
 
         self.assertEqual(unconf_count['count'], 0)
         self.assertEqual(error_count['count'], 10)

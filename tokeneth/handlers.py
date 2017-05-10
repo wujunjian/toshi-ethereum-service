@@ -8,9 +8,12 @@ from tokenservices.redis import RedisMixin
 
 from tokenservices.sofa import SofaPayment
 from tokenservices.handlers import RequestVerificationMixin
+from tokenservices.utils import validate_address
 
 from .mixins import BalanceMixin
 from .jsonrpc import TokenEthJsonRPC
+from .utils import database_transaction_to_rlp_transaction
+from tokenservices.ethereum.tx import transaction_to_json
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
@@ -78,23 +81,28 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
     async def get(self, tx_hash):
 
-        format = self.get_query_argument('format', 'rpc')
+        format = self.get_query_argument('format', 'rpc').lower()
 
         try:
             tx = await TokenEthJsonRPC(None, self.application).get_transaction(tx_hash)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 
-        if tx is None:
+        if tx is None and format != 'sofa':
             raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
 
-        if format.lower() == 'sofa':
+        if format == 'sofa':
 
             async with self.db:
-                row = await self.db.fetchrow("SELECT * FROM transactions where transaction_hash = $1",
-                                             tx_hash)
-            if row is not None and row['error'] is not None:
-                tx['error'] = row['error']
+                row = await self.db.fetchrow(
+                    "SELECT * FROM transactions where hash = $1 ORDER BY transaction_id DESC",
+                    tx_hash)
+            if row is None:
+                raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
+            if tx is None:
+                tx = transaction_to_json(database_transaction_to_rlp_transaction(row))
+            if row['status'] == 'error':
+                tx['error'] = True
             payment = SofaPayment.from_transaction(tx)
             message = payment.render()
             self.set_header('Content-Type', 'text/plain')
@@ -104,64 +112,6 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
             self.write(tx)
 
-class TransactionNotificationRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
-
-    async def post(self):
-
-        token_id = self.verify_request()
-        payload = self.json
-
-        if 'addresses' not in payload or len(payload['addresses']) == 0:
-            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
-
-        addresses = payload['addresses']
-
-        try:
-            await TokenEthJsonRPC(token_id, self.application).subscribe(*addresses)
-        except JsonRPCError as e:
-            raise JSONHTTPError(400, body={'errors': [e.data]})
-        except TypeError:
-            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
-
-        self.set_status(204)
-
-class TransactionNotificationDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
-
-    async def post(self):
-
-        token_id = self.verify_request()
-        payload = self.json
-
-        if 'addresses' not in payload or len(payload['addresses']) == 0:
-            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
-
-        addresses = payload['addresses']
-
-        try:
-            await TokenEthJsonRPC(token_id, self.application).unsubscribe(*addresses)
-        except JsonRPCError as e:
-            raise JSONHTTPError(400, body={'errors': [e.data]})
-        except TypeError:
-            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
-
-        self.set_status(204)
-
-class SubscriptionListHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
-
-    async def get(self):
-
-        token_id = self.verify_request()
-        try:
-            result = await TokenEthJsonRPC(token_id, self.application).list_subscriptions()
-        except JsonRPCError as e:
-            raise JSONHTTPError(400, body={'errors': [e.data]})
-        except TypeError:
-            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
-
-        self.write({
-            "subscriptions": result
-        })
-
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 
     async def post(self, service):
@@ -169,17 +119,22 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
         token_id = self.verify_request()
         payload = self.json
 
-        if 'registration_id' not in payload:
+        if not all(arg in payload for arg in ['registration_id']):
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
 
         # TODO: registration id verification
 
+        # eth address verification (default to token_id if eth_address is not supplied)
+        eth_address = payload['address'] if 'address' in payload else token_id
+        if not validate_address(eth_address):
+            raise JSONHTTPError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+
         async with self.db:
 
             await self.db.execute(
-                "INSERT INTO push_notification_registrations (service, registration_id, token_id) "
-                "VALUES ($1, $2, $3) ON CONFLICT (service, registration_id) DO UPDATE SET token_id = $3",
-                service, payload['registration_id'], token_id)
+                "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
+                "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
+                token_id, service, payload['registration_id'], eth_address)
 
             await self.db.commit()
 
@@ -197,11 +152,20 @@ class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandl
 
         # TODO: registration id verification
 
+        # eth address verification (if none is supplied, delete all the matching addresses)
+        eth_address = payload.get('address', None)
+        if eth_address and not validate_address(eth_address):
+            raise JSONHTTPError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+
         async with self.db:
 
+            args = [token_id, service, payload['registration_id']]
+            if eth_address:
+                args.append(eth_address)
             await self.db.execute(
-                "DELETE FROM push_notification_registrations WHERE service = $1 AND registration_id = $2 AND token_id = $3",
-                service, payload['registration_id'], token_id)
+                "DELETE FROM notification_registrations WHERE token_id = $1 AND service = $2 AND registration_id = $3{}".format(
+                    "AND eth_address = $4" if eth_address else ""),
+                *args)
 
             await self.db.commit()
 

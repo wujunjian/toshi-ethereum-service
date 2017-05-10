@@ -195,140 +195,11 @@ Returns the balance of the given address. Two values are returned, `confirmed_ba
 
 # Group Notifications
 
-## Register for transaction notifications [/v1/register]
-
-### Register [POST]
-
-Register that a user wants to receive notifications of transactions to and from specific ethereum addresses. This creates a link between specific addresses and a token identity. This request must be signed to prove ownership of the token identity.
-
-+ Request (application/json)
-
-    + Headers
-
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
-
-    + Body
-
-        {
-            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
-        }
-
-+ Response 204
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "invalid_signature",
-                    "message": "Invalid Signature"
-                }
-            ]
-        }
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "invalid_timestamp",
-                    "message": "The difference between the timestamp and the current time is too large"
-                }
-            ]
-        }
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "missing_arguments",
-                    "message": "Missing arguments"
-                }
-            ]
-        }
-
-## Deregister addresses from transaction notifications [/v1/deregister]
-
-### Deregister [POST]
-
-Removes the given addresses from the list of addresses that the user will receive notifications for
-
-+ Request (application/json)
-
-    + Headers
-
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
-
-    + Body
-
-        {
-            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
-        }
-
-+ Response 204
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "invalid_signature",
-                    "message": "Invalid Signature"
-                }
-            ]
-        }
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "invalid_timestamp",
-                    "message": "The difference between the timestamp and the current time is too large"
-                }
-            ]
-        }
-
-+ Response 400 (application/json)
-
-        {
-            "errors": [
-                {
-                    "id": "missing_arguments",
-                    "message": "Missing arguments"
-                }
-            ]
-        }
-
-## List addresses registered for transaction notifications [/v1/subscriptions]
-
-### List subscriptions [GET]
-
-+ Request (application/json)
-
-    + Headers
-
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
-
-+ Response 200 (application/json)
-
-        {
-            "addresses": ["0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a", "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"]
-        }
-
-
 ## Register for apple push notifications [/v1/apn/register]
 
 ### APN Registration [POST]
 
-Register for APN push notifications. This links a token identity to a push notification token. This will enable push notifications for any of the addresses the token identity has registered to receive transaction notifications from.
+Register for APN push notifications. This links a token identity to a push notification token and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the token id.
 
 + Request (application/json)
 
@@ -341,7 +212,8 @@ Register for APN push notifications. This links a token identity to a push notif
     + Body
 
         {
-            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
+            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a"
         }
 
 + Response 204
@@ -383,7 +255,7 @@ Register for APN push notifications. This links a token identity to a push notif
 
 ### GCM Registration [POST]
 
-Register for Google Cloud Messaging push notifications. This links a token identity to a push notification token. This will enable push notifications for any of the addresses the token identity has registered to receive transaction notifications from.
+Register for Google Cloud Messaging push notifications. This links a token identity to a push notification token and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the token id.
 
 + Request (application/json)
 
@@ -396,7 +268,8 @@ Register for Google Cloud Messaging push notifications. This links a token ident
     + Body
 
         {
-            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
+            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a"
         }
 
 + Response 204
@@ -467,6 +340,52 @@ All the above endpoints can be accessed through a websocket based json-rpc inter
         Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
         Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
         Token-Timestamp: 1480077346
+
+## Deregister apple push notifications [/v1/apn/deregister]
+
+### APN Deregistration [POST]
+
+Deregister the given address from the given registration_id. If no address is given, all addresses matching the registration id will be deregistered.
+
++ Request (application/json)
+
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
+        {
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
+            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a"
+        }
+
++ Response 204
+
+## Deregister Google Cloud Messaging [/v1/gcm/deregister]
+
+### GCM Deregistration [POST]
+
+Deregister the given address from the given registration_id. If no address is given, all addresses matching the registration id will be deregistered.
+
++ Request (application/json)
+
+    + Headers
+
+        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Token-Timestamp: 1480077346
+
+    + Body
+
+        {
+            "registration_id": "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd",
+            "address": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a"
+        }
+
++ Response 204
 
 # Group JSON-RPC methods
 

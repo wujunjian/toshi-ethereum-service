@@ -4,14 +4,14 @@ from tornado.escape import json_decode, json_encode
 from tornado.testing import gen_test
 from tornado.platform.asyncio import to_asyncio_future
 
-from tokeneth.app import urls
-from tokeneth.test.base import EthServiceBaseTest
+from tokeneth.test.base import EthServiceBaseTest, requires_task_manager, requires_block_monitor, requires_full_stack
 from tokenservices.test.database import requires_database
 from tokenservices.test.redis import requires_redis
 from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokenservices.request import sign_request
 from tokenservices.ethereum.utils import data_decoder, data_encoder
-from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction
+from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from tokenservices.utils import parse_int
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -21,16 +21,15 @@ TEST_ADDRESS_2 = "0x35351b44e03ec8515664a955146bf9c6e503a381"
 
 class TransactionTest(EthServiceBaseTest):
 
-    @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_parity
+    @gen_test(timeout=15)
+    @requires_full_stack
     async def test_create_and_send_transaction(self):
 
+        val = 10 ** 10
         body = {
             "from": FAUCET_ADDRESS,
             "to": TEST_ADDRESS,
-            "value": 10 ** 10
+            "value": val
         }
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
@@ -59,11 +58,28 @@ class TransactionTest(EthServiceBaseTest):
             rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
         self.assertEqual(len(rows), 1)
 
+        # wait for a push notification
         await self.wait_on_tx_confirmation(tx_hash)
+        while True:
+            async with self.pool.acquire() as con:
+                row = await con.fetchrow("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+            if row['status'] == 'confirmed':
+                break
+
+        # make sure confirmed field is set
+        self.assertIsNotNone(row['confirmed'])
+
+        # make sure balance is returned correctly
+        resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))
+        self.assertEqual(resp.code, 200)
+        data = json_decode(resp.body)
+        self.assertEqual(parse_int(data['confirmed_balance']), val)
+        self.assertEqual(parse_int(data['unconfirmed_balance']), val)
 
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_transaction_with_separate_sig(self):
 
@@ -98,13 +114,56 @@ class TransactionTest(EthServiceBaseTest):
             async with self.pool.acquire() as con:
                 rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]['transaction_hash'], tx_hash)
+            self.assertEqual(rows[0]['hash'], tx_hash)
 
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
+    @requires_parity
+    async def test_create_and_send_signed_transaction_with_separate_sig(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+        tx = decode_transaction(body['tx'])
+        tx = sign_transaction(tx, FAUCET_PRIVATE_KEY)
+        sig = signature_from_transaction(tx)
+
+        body = {
+            "tx": encode_transaction(tx),
+            "signature": data_encoder(sig)
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        async def check_db():
+            async with self.pool.acquire() as con:
+                rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['hash'], tx_hash)
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_multiple_transactions(self):
 
@@ -115,6 +174,9 @@ class TransactionTest(EthServiceBaseTest):
         }
 
         tx_hashes = []
+
+        resp = await self.fetch("/balance/{}".format(FAUCET_ADDRESS))
+        last_balance = json_decode(resp.body)['unconfirmed_balance']
 
         for i in range(10):
             resp = await self.fetch("/tx/skel", method="POST", body=body)
@@ -132,10 +194,57 @@ class TransactionTest(EthServiceBaseTest):
             tx_hash = json_decode(resp.body)['tx_hash']
             tx_hashes.append(tx_hash)
 
+            resp = await self.fetch("/balance/{}".format(FAUCET_ADDRESS))
+            balance = json_decode(resp.body)['unconfirmed_balance']
+            # ensure the unconfirmed balance is changing with each request
+            self.assertNotEqual(balance, last_balance)
+
         for tx_hash in tx_hashes:
             await self.wait_on_tx_confirmation(tx_hash)
 
+    @gen_test(timeout=30)
+    @requires_full_stack
+    async def test_empty_account(self):
+
+        val = 10 ** 16
+        default_fees = DEFAULT_STARTGAS * DEFAULT_GASPRICE
+
+        tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS, val)
+        await self.wait_on_tx_confirmation(tx_hash, check_db=True)
+
+        resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))
+        self.assertEqual(resp.code, 200)
+        data = json_decode(resp.body)
+        self.assertEqual(parse_int(data['confirmed_balance']), val)
+        self.assertEqual(parse_int(data['unconfirmed_balance']), val)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": TEST_ADDRESS,
+            "to": FAUCET_ADDRESS,
+            "value": val - default_fees
+        })
+        self.assertEqual(resp.code, 200)
+        body = json_decode(resp.body)
+        tx = sign_transaction(body['tx'], TEST_PRIVATE_KEY)
+        resp = await self.fetch("/tx", method="POST", body={
+            "tx": tx
+        })
+        self.assertEqual(resp.code, 200, resp.body)
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        # wait for a push notification
+        await self.wait_on_tx_confirmation(tx_hash, check_db=True)
+
+        # make sure balance is returned correctly (and is 0)
+        resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))
+        self.assertEqual(resp.code, 200)
+        data = json_decode(resp.body)
+        self.assertEqual(parse_int(data['confirmed_balance']), 0)
+        self.assertEqual(parse_int(data['unconfirmed_balance']), 0)
+
     @gen_test
+    @requires_database
     @requires_parity
     async def test_invalid_transaction(self):
 
@@ -148,6 +257,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_transactions_with_known_sender_token_id(self):
 
@@ -189,6 +299,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_transactions_with_known_sender_token_id_but_invalid_signature(self):
 
@@ -223,6 +334,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_transaction_with_data(self):
 
@@ -257,6 +369,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_transaction_with_0_value_and_data(self):
 
@@ -291,6 +404,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_transaction_with_no_value_and_data(self):
 
@@ -324,6 +438,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_transaction_with_large_data(self):
 
@@ -341,6 +456,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_create_and_send_transaction_with_custom_values(self):
 
@@ -418,9 +534,13 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(ok, 1)
         self.assertEqual(bad, no_tests - 1)
 
+        # TODO: deal with lingering ioloop tasks better
+        await asyncio.sleep(1)
+
     @gen_test(timeout=30)
     @requires_database
     @requires_redis
+    @requires_task_manager
     @requires_parity
     async def test_prevent_out_of_order_txs(self):
         """Spams transactions with the same nonce, and ensures the server rejects all but one"""

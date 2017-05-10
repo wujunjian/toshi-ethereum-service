@@ -1,12 +1,11 @@
 import asyncio
-from tokenservices.test.base import AsyncHandlerTest, TokenWebSocketJsonRPCClient
+from tokenservices.test.base import TokenWebSocketJsonRPCClient
+from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
 from tokeneth.app import urls
 from tornado.testing import gen_test
-from tokenservices.test.database import requires_database
-from tokenservices.test.redis import requires_redis
-from tokenservices.test.ethereum.parity import requires_parity
 from tokenservices.test.ethereum.faucet import FaucetMixin
 from tokenservices.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
+from tokenservices.sofa import SofaPayment, parse_sofa_message
 
 from tokeneth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -15,16 +14,7 @@ from tokeneth.test.test_transaction import (
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
 
-from tokeneth.test.test_block_monitor import requires_block_monitor
-
-class WebsocketTest(FaucetMixin, AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
+class WebsocketTest(FaucetMixin, EthServiceBaseTest):
 
     async def websocket_connect(self, signing_key):
         con = TokenWebSocketJsonRPCClient(self.get_url("/ws"), signing_key=signing_key)
@@ -32,22 +22,24 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         return con
 
     @gen_test(timeout=60)
-    @requires_database
-    @requires_redis
-    @requires_parity(pass_args=True)
-    @requires_block_monitor
-    async def test_subscriptions(self, *, parity, ethminer):
+    @requires_full_stack
+    async def test_subscriptions(self):
 
         val = 761751855997712
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
         await ws_con.call("subscribe", [TEST_ID_ADDRESS])
 
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow("SELECT COUNT(*) FROM notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+        self.assertEqual(row['count'], 1)
+
         tx_hash = await self.faucet(TEST_ID_ADDRESS, val)
 
         result = await ws_con.read()
         self.assertIsNotNone(result)
-        self.assertEqual(result['params']['transaction']['hash'], tx_hash)
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
         ws_con.con.close()
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
@@ -65,7 +57,8 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
 
         result = await ws_con.read()
         self.assertIsNotNone(result)
-        self.assertEqual(result['params']['transaction']['hash'], tx_hash)
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
 
         await ws_con.call("unsubscribe", [TEST_WALLET_ADDRESS])
 
@@ -75,10 +68,7 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         self.assertIsNone(result)
 
     @gen_test(timeout=60)
-    @requires_database
-    @requires_redis
-    @requires_parity
-    @requires_block_monitor
+    @requires_full_stack
     async def test_list_subscriptions(self):
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
@@ -106,10 +96,7 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         self.assertEqual(subs[0], TEST_WALLET_ADDRESS)
 
     @gen_test(timeout=60)
-    @requires_database
-    @requires_redis
-    @requires_parity
-    @requires_block_monitor
+    @requires_full_stack
     async def test_send_transaction(self):
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
@@ -133,10 +120,7 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         self.assertIsNotNone(tx_hash)
 
     @gen_test(timeout=60)
-    @requires_database
-    @requires_redis
-    @requires_parity(pass_ethminer=True)
-    @requires_block_monitor
+    @requires_full_stack(ethminer=True)
     async def test_get_balance(self, *, ethminer):
 
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
@@ -173,16 +157,17 @@ class WebsocketTest(FaucetMixin, AsyncHandlerTest):
         # check for the unconfirmed notification
         result = await ws_con.read()
         self.assertIsNotNone(result)
-        self.assertEqual(result['params']['transaction']['hash'], tx_hash)
-        self.assertIsNone(result['params']['transaction']['blockNumber'])
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
+        self.assertEqual(payment['status'], 'unconfirmed')
 
         # restart mining
         ethminer.start()
 
         result = await ws_con.read()
-        self.assertIsNotNone(result)
-        self.assertEqual(result['params']['transaction']['hash'], tx_hash)
-        self.assertIsNotNone(result['params']['transaction']['blockNumber'])
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
+        self.assertEqual(payment['status'], 'confirmed')
 
         result = await ws_con.call("get_balance", [TEST_ID_ADDRESS])
 

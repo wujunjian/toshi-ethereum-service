@@ -1,13 +1,13 @@
 import binascii
 from tokenservices.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
-from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCInternalError, JsonRPCError
+from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
 from tokenservices.database import DatabaseMixin
 from tokenservices.ethereum.mixin import EthereumMixin
 from tokenservices.redis import RedisMixin
 from tokenservices.ethereum.utils import data_decoder, data_encoder
 from ethereum.exceptions import InvalidTransaction
+from tokenservices.tasks import TaskDispatcher
 from functools import partial
-from tornado.ioloop import IOLoop
 from tokenservices.utils import (
     validate_address, parse_int, validate_signature, validate_transaction_hash
 )
@@ -15,13 +15,13 @@ from tokenservices.ethereum.tx import (
     DEFAULT_STARTGAS, DEFAULT_GASPRICE, create_transaction,
     encode_transaction, decode_transaction, is_transaction_signed,
     signature_from_transaction, add_signature_to_transaction,
-    transaction_to_json
+    transaction_to_json, calculate_transaction_hash
 )
 
 from tokenservices.log import log
 
 from .mixins import BalanceMixin
-from .utils import RedisLock
+from .utils import RedisLock, database_transaction_to_rlp_transaction
 
 class JsonRPCInsufficientFundsError(JsonRPCError):
     def __init__(self, *, request=None, data=None):
@@ -36,17 +36,50 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
         self.user_token_id = user_token_id
         self.application = application
 
+    @property
+    def tasks(self):
+        if not hasattr(self, '_task_dispatcher'):
+            self._task_dispatcher = TaskDispatcher(self.application.task_listener)
+        return self._task_dispatcher
+
     async def get_balance(self, address):
 
         if not validate_address(address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
 
-        confirmed, unconfirmed = await self.get_balances(address)
+        confirmed, unconfirmed, _, _ = await self.get_balances(address)
 
         return {
             "confirmed_balance": hex(confirmed),
             "unconfirmed_balance": hex(unconfirmed)
         }
+
+    async def get_transaction_count(self, address):
+
+        if not validate_address(address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+
+        # get the network nonce
+        nw_nonce = await self.eth.eth_getTransactionCount(address)
+
+        # check the database for queued txs
+        async with self.db:
+            nonce = await self.db.fetchval(
+                "SELECT nonce FROM transactions "
+                "WHERE from_address = $1 "
+                "AND (status is NULL OR status = 'queued' OR status = 'unconfirmed') "
+                "ORDER BY nonce DESC",
+                address)
+
+        #nonce = nonce[0]['nonce'] if nonce else None
+        if nonce is not None:
+            # return the next usable nonce
+            nonce = nonce + 1
+            if nonce < nw_nonce:
+                return nw_nonce
+            return nonce
+        else:
+            return nw_nonce
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
     async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None):
@@ -66,15 +99,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
 
         if nonce is None:
             # check cache for nonce
-            nonce = self.redis.get("nonce:{}".format(from_address))
-            if nonce:
-                nonce = int(nonce)
-            # get the network's value too
-            nw_nonce = await self.eth.eth_getTransactionCount(from_address)
-            if nonce is None or nw_nonce > nonce:
-                # if not cached, or the cached value is lower than
-                # the network value, use the network value!
-                nonce = nw_nonce
+            nonce = await self.get_transaction_count(from_address)
         else:
             nonce = parse_int(nonce)
             if nonce is None:
@@ -130,15 +155,19 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
 
         if is_transaction_signed(tx):
 
+            tx_sig = data_encoder(signature_from_transaction(tx))
+
             if signature:
 
-                tx_sig = signature_from_transaction(tx)
                 if tx_sig != signature:
 
                     raise JsonRPCInvalidParamsError(data={
                         'id': 'invalid_signature',
                         'message': 'Invalid Signature: Signature in payload and signature of transaction do not match'
                     })
+            else:
+
+                signature = tx_sig
         else:
 
             if signature is None:
@@ -152,7 +181,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
                 })
 
             try:
-                signature = data_decoder(signature)
+                sig = data_decoder(signature)
             except Exception:
                 log.exception("Unexpected error decoding valid signature: {}".format(signature))
                 raise JsonRPCInvalidParamsError(data={
@@ -160,7 +189,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
                     'message': 'Invalid Signature'
                 })
 
-            add_signature_to_transaction(tx, signature)
+            add_signature_to_transaction(tx, sig)
 
         from_address = data_encoder(tx.sender)
         to_address = data_encoder(tx.to)
@@ -173,64 +202,51 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
             # disallow transaction overwriting for known transactions
             async with self.db:
                 existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
-                                                  "from_address = $1 AND nonce = $2 AND last_status != $3",
+                                                  "from_address = $1 AND nonce = $2 AND status != $3",
                                                   from_address, tx.nonce, 'error')
             if existing:
                 # debugging checks
-                existing_tx = await self.eth.eth_getTransactionByHash(existing['transaction_hash'])
+                existing_tx = await self.eth.eth_getTransactionByHash(existing['hash'])
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
 
             # make sure the account has enough funds for the transaction
-            network_balance, balance = await self.get_balances(from_address, ignore_pending_recieved=True)
+            network_balance, balance, _, _ = await self.get_balances(from_address)
 
-            log.info("Attempting to send transaction\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
-                from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
+            #log.info("Attempting to send transaction\nHash: {}\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
+            #    calculate_transaction_hash(tx), from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
 
             if balance < (tx.value + (tx.startgas * tx.gasprice)):
                 raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
 
             # validate the nonce
-            c_nonce = self.redis.get("nonce:{}".format(from_address))
-            if c_nonce:
-                c_nonce = int(c_nonce)
-            # get the network's value too
-            nw_nonce = await self.eth.eth_getTransactionCount(from_address)
-            if c_nonce is None or nw_nonce > c_nonce:
-                c_nonce = nw_nonce
+            c_nonce = await self.get_transaction_count(from_address)
 
             if tx.nonce < c_nonce:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
             if tx.nonce > c_nonce:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
 
-            # send the transaction to the network
-            try:
-                tx_encoded = encode_transaction(tx)
-                tx_hash = await self.eth.eth_sendRawTransaction(tx_encoded)
-            except JsonRPCError as e:
-                log.error(e.format())
-                raise JsonRPCInternalError(data={
-                    'id': 'unexpected_error',
-                    'message': 'An error occured communicating with the ethereum network, try again later'
-                })
+            # now this tx fits enough of the criteria to allow it
+            # onto the transaction queue
+            tx_hash = calculate_transaction_hash(tx)
 
-            # cache nonce
-            self.redis.set("nonce:{}".format(from_address), tx.nonce + 1)
             # add tx to database
             async with self.db:
                 await self.db.execute(
                     "INSERT INTO transactions "
-                    "(transaction_hash, from_address, to_address, nonce, value, estimated_gas_cost, sender_token_id) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                    tx_hash, from_address, to_address, tx.nonce, str(tx.value), str(tx.startgas * tx.gasprice), self.user_token_id)
+                    "(hash, from_address, to_address, nonce, "
+                    "value, gas, gas_price, "
+                    "data, signature, "
+                    "sender_token_id) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    tx_hash, from_address, to_address, tx.nonce,
+                    str(tx.value), str(tx.startgas), str(tx.gasprice),
+                    data_encoder(tx.data), signature,
+                    self.user_token_id)
                 await self.db.commit()
 
-            # if there is a block monitor, force send PNs for this without
-            # waiting for the node to see it
-            if hasattr(self.application, 'monitor'):
-                txjson = transaction_to_json(tx)
-                assert txjson['hash'] == tx_hash
-                IOLoop.current().add_callback(self.application.monitor.send_transaction_notifications, txjson)
+            # trigger processing the transaction queue
+            self.tasks.process_transaction_queue(from_address)
 
         return tx_hash
 
@@ -240,50 +256,14 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_transaction_hash', 'message': 'Invalid Transaction Hash'})
 
         tx = await self.eth.eth_getTransactionByHash(tx_hash)
+        if tx is None:
+            async with self.db:
+                tx = await self.db.fetchrow(
+                    "SELECT * FROM transactions WHERE "
+                    "hash = $1 AND (status != 'error' OR status IS NULL) "
+                    "ORDER BY transaction_id DESC",
+                    tx_hash)
+            if tx:
+                tx = database_transaction_to_rlp_transaction(tx)
+                tx = transaction_to_json(tx)
         return tx
-
-    async def subscribe(self, *addresses):
-
-        insert_args = []
-        for address in addresses:
-            if not validate_address(address):
-                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
-            insert_args.extend([self.user_token_id, address])
-
-        async with self.db:
-
-            await self.db.execute(
-                "INSERT INTO notification_registrations VALUES {} ON CONFLICT DO NOTHING".format(
-                    ', '.join('(${}, ${})'.format((i * 2) + 1, (i * 2) + 2) for i, _ in enumerate(addresses))),
-                *insert_args)
-
-            await self.db.commit()
-
-        return True
-
-    async def unsubscribe(self, *addresses):
-
-        for address in addresses:
-            if not validate_address(address):
-                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
-
-        async with self.db:
-
-            await self.db.execute(
-                "DELETE FROM notification_registrations WHERE token_id = $1 AND ({})".format(
-                    ' OR '.join('eth_address = ${}'.format(i + 2) for i, _ in enumerate(addresses))),
-                self.user_token_id, *addresses)
-
-            await self.db.commit()
-
-        return True
-
-    async def list_subscriptions(self):
-
-        async with self.db:
-
-            rows = await self.db.fetch(
-                "SELECT eth_address FROM notification_registrations WHERE token_id = $1",
-                self.user_token_id)
-
-        return [row['eth_address'] for row in rows]

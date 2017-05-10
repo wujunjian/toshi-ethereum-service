@@ -1,12 +1,8 @@
-import asyncio
 from tornado.escape import json_decode
 from tornado.testing import gen_test
 
-from tokeneth.app import urls
-from tokenservices.test.base import AsyncHandlerTest
-from tokenservices.test.database import requires_database
-from tokenservices.test.redis import requires_redis
-from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
+from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from tokenservices.sofa import parse_sofa_message
 from tokenservices.ethereum.utils import data_decoder
 from tokenservices.ethereum.tx import sign_transaction
@@ -17,33 +13,10 @@ TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
 TEST_PRIVATE_KEY_2 = data_decoder("0x0ffdb88a7a0a40831ca0b19bd31f3f6085764ef8b7db1bd6b57072e5eaea24ff")
 TEST_ADDRESS_2 = "0x35351b44e03ec8515664a955146bf9c6e503a381"
 
-class TransactionTest(AsyncHandlerTest):
-
-    def get_urls(self):
-        return urls
-
-    def get_url(self, path):
-        path = "/v1{}".format(path)
-        return super().get_url(path)
-
-    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None):
-        while True:
-            resp = await self.fetch("/tx/{}".format(tx_hash))
-            self.assertEqual(resp.code, 200)
-            body = json_decode(resp.body)
-            if body is None or body['blockNumber'] is None:
-                if interval_check_callback:
-                    f = interval_check_callback()
-                    if asyncio.iscoroutine(f):
-                        await f
-                await asyncio.sleep(1)
-            else:
-                return body
+class SOFATest(EthServiceBaseTest):
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_parity
+    @requires_full_stack
     async def test_get_sofa_payment(self):
 
         body = {

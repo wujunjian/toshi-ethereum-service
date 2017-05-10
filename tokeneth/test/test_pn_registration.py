@@ -1,6 +1,6 @@
 import time
 
-from tornado.escape import json_encode
+from tornado.escape import json_encode, json_decode
 from tornado.testing import gen_test
 
 from tokeneth.app import urls
@@ -35,7 +35,7 @@ class PNRegistrationTest(AsyncHandlerTest):
     async def test_register_for_push_notifications(self):
 
         body = {
-            "registration_id": TEST_APN_ID,
+            "registration_id": TEST_APN_ID
         }
 
         resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
@@ -44,10 +44,11 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE eth_address = $1", TEST_ADDRESS)
 
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows1), 1)
+        self.assertEqual(len(rows2), 1, "token id not used as default when registering pns")
 
     @gen_test
     @requires_database
@@ -67,10 +68,11 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", FAUCET_ADDRESS)
 
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 0)
+        self.assertEqual(len(rows1), 0)
+        self.assertEqual(len(rows2), 0)
 
     @gen_test
     @requires_database
@@ -81,8 +83,8 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2), ('apn', $3, $4)",
-                               TEST_APN_ID, TEST_ADDRESS, TEST_APN_ID_2, TEST_ADDRESS_2)
+            await con.fetchrow("INSERT INTO notification_registrations VALUES ($1, 'apn', $2, $3), ($4, 'apn', $5, $6)",
+                               TEST_ADDRESS, TEST_APN_ID, TEST_ADDRESS, TEST_ADDRESS_2, TEST_APN_ID_2, TEST_ADDRESS_2)
 
         body = {
             "registration_id": TEST_APN_ID
@@ -94,36 +96,8 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
-        self.assertIsNotNone(rows)
-        self.assertEqual(len(rows), 1)
-
-    @gen_test
-    @requires_database
-    async def test_replace_previous_push_notification_registration(self):
-
-        """tests that registering an existing registration_id with a new
-        token_id replaces the old token id"""
-
-        async with self.pool.acquire() as con:
-
-            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2), ('apn', $3, $4)",
-                               TEST_APN_ID, FAUCET_ADDRESS, TEST_APN_ID_2, TEST_ADDRESS_2)
-
-        body = {
-            "registration_id": TEST_APN_ID
-        }
-
-        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body=body)
-
-        self.assertEqual(resp.code, 204, resp.body)
-
-        async with self.pool.acquire() as con:
-
-            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
-
-        self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
 
     @gen_test
@@ -132,7 +106,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('gcm', $1, $2)",
+            await con.fetchrow("INSERT INTO notification_registrations VALUES ($2, 'gcm', $1, $2)",
                                TEST_GCM_ID, TEST_ADDRESS)
 
         body = {
@@ -145,7 +119,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -166,7 +140,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -176,7 +150,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            await con.fetchrow("INSERT INTO push_notification_registrations VALUES ('apn', $1, $2)",
+            await con.fetchrow("INSERT INTO notification_registrations VALUES ($2, 'apn', $1, $2)",
                                TEST_APN_ID, TEST_ADDRESS)
 
         body = {
@@ -191,9 +165,8 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM push_notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
 
-        self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
 
 
