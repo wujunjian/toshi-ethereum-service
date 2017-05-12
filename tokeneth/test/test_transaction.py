@@ -342,6 +342,56 @@ class TransactionTest(EthServiceBaseTest):
     @requires_database
     @requires_redis
     @requires_parity
+    async def test_create_and_send_transaction_with_custom_values(self):
+
+        # try creating a skel that is invalid
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "gas": 21000,
+            "gasPrice": 20000000000,
+            "nonce": 1,
+            "data": "0xffffffff"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 400)
+
+        # make sure valid values are fine (incresed max gas and let skel pick the nonce)
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "gas": 25000,
+            "gasPrice": 20000000000,
+            "data": "0xffffffff"
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_parity
     async def test_transaction_nonce_lock(self):
         """Spams transactions with the same nonce, and ensures the server rejects all but one"""
 

@@ -28,10 +28,19 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
     async def post(self):
 
         try:
+            # normalize inputs
             if 'from' in self.json:
                 self.json['from_address'] = self.json.pop('from')
             if 'to' in self.json:
                 self.json['to_address'] = self.json.pop('to')
+            # the following are to deal with different representations
+            # of the same concept from different places
+            if 'gasPrice' in self.json:
+                self.json['gas_price'] = self.json.pop('gasPrice')
+            if 'gasprice' in self.json:
+                self.json['gas_price'] = self.json.pop('gasprice')
+            if 'startgas' in self.json:
+                self.json['gas'] = self.json.pop('startgas')
             result = await TokenEthJsonRPC(None, self.application).create_transaction_skeleton(**self.json)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})

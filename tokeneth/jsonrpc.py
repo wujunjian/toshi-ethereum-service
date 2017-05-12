@@ -5,6 +5,7 @@ from tokenservices.database import DatabaseMixin
 from tokenservices.ethereum.mixin import EthereumMixin
 from tokenservices.redis import RedisMixin
 from tokenservices.ethereum.utils import data_decoder, data_encoder
+from ethereum.exceptions import InvalidTransaction
 from functools import partial
 from tornado.ioloop import IOLoop
 from tokenservices.utils import (
@@ -110,8 +111,11 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
             if gas_price is None:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
 
-        tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
-                                to=to_address, value=value, data=data)
+        try:
+            tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
+                                    to=to_address, value=value, data=data)
+        except InvalidTransaction as e:
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_transaction', 'message': str(e)})
 
         transaction = encode_transaction(tx)
 
