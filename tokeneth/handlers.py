@@ -9,6 +9,7 @@ from tokenservices.redis import RedisMixin
 from tokenservices.sofa import SofaPayment
 from tokenservices.handlers import RequestVerificationMixin
 from tokenservices.utils import validate_address
+from tokenservices.log import log, log_headers_on_error
 
 from .mixins import BalanceMixin
 from .jsonrpc import TokenEthJsonRPC
@@ -114,8 +115,8 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 
+    @log_headers_on_error
     async def post(self, service):
-
         token_id = self.verify_request()
         payload = self.json
 
@@ -124,19 +125,54 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
 
         # TODO: registration id verification
 
-        # eth address verification (default to token_id if eth_address is not supplied)
-        eth_address = payload['address'] if 'address' in payload else token_id
-        if not validate_address(eth_address):
-            raise JSONHTTPError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+        # XXX: BACKWARDS COMPAT FOR OLD PN REGISTARTION
+        # remove when no longer needed
+        if 'address' not in payload:
+            async with self.db:
+                legacy = await self.db.fetch("SELECT eth_address FROM notification_registrations "
+                                             "WHERE token_id = $1 AND service = 'LEGACY' AND registration_id = 'LEGACY'",
+                                             token_id)
+        else:
+            legacy = False
 
-        async with self.db:
+        if legacy:
 
-            await self.db.execute(
-                "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
-                "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
-                token_id, service, payload['registration_id'], eth_address)
+            async with self.db:
 
-            await self.db.commit()
+                for row in legacy:
+                    eth_address = row['eth_address']
+                    await self.db.execute(
+                        "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
+                        "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
+                        token_id, service, payload['registration_id'], eth_address)
+                await self.db.execute(
+                    "DELETE FROM notification_registrations "
+                    "WHERE token_id = $1 AND service = 'LEGACY' AND registration_id = 'LEGACY'", token_id)
+                await self.db.commit()
+
+        else:
+
+            # eth address verification (default to token_id if eth_address is not supplied)
+            eth_address = payload['address'] if 'address' in payload else token_id
+            if not validate_address(eth_address):
+                raise JSONHTTPError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+
+            async with self.db:
+
+                await self.db.execute(
+                    "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
+                    "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
+                    token_id, service, payload['registration_id'], eth_address)
+
+                # XXX: temporary fix for old ios versions sending their payment address as token_id
+                # should be removed after enough time has passed that most people should be using the fixed version
+                if eth_address != token_id:
+                    # remove any apn registrations where token_id == eth_address for this eth_address
+                    await self.db.execute(
+                        "DELETE FROM notification_registrations "
+                        "WHERE token_id = $1 AND eth_address = $1 AND service = 'apn'", eth_address)
+
+                await self.db.commit()
 
         self.set_status(204)
 
@@ -166,6 +202,76 @@ class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandl
                 "DELETE FROM notification_registrations WHERE token_id = $1 AND service = $2 AND registration_id = $3{}".format(
                     "AND eth_address = $4" if eth_address else ""),
                 *args)
+
+            await self.db.commit()
+
+        self.set_status(204)
+
+class LegacyRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+    """backwards compatibility for old pn registration"""
+
+    async def post(self):
+
+        token_id = self.verify_request()
+        payload = self.json
+
+        if 'addresses' not in payload or len(payload['addresses']) == 0:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        addresses = payload['addresses']
+
+        for address in addresses:
+            if not validate_address(address):
+                raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        async with self.db:
+
+            # see if this token_id is already registered, listening to it's own token_id
+            rows = await self.db.fetch("SELECT * FROM notification_registrations "
+                                       "WHERE token_id = $1 AND eth_address = $1 AND service != 'ws'",
+                                       token_id)
+            if rows:
+                if len(rows) > 1:
+                    log.warning("LEGACY REGISTRATION FOR '{}' HAS MORE THAN ONE DEVICE OR SERVICE".format(token_id))
+                registration_id = rows[0]['registration_id']
+                service = rows[0]['service']
+            else:
+                service = 'LEGACY'
+                registration_id = 'LEGACY'
+
+            # simply store all the entered addresses with no service/registrations id
+            for address in addresses:
+                await self.db.execute(
+                    "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
+                    "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
+                    token_id, service, registration_id, address)
+
+            await self.db.commit()
+
+        self.set_status(204)
+
+class LegacyDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self):
+
+        token_id = self.verify_request()
+        payload = self.json
+
+        if 'addresses' not in payload or len(payload['addresses']) == 0:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        addresses = payload['addresses']
+
+        for address in addresses:
+            if not validate_address(address):
+                raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        async with self.db:
+
+            await self.db.execute(
+                "DELETE FROM notification_registrations WHERE service != 'ws' AND token_id = $1 AND ({})".format(
+                    ' OR '.join('eth_address = ${}'.format(i + 2) for i, _ in enumerate(addresses))),
+                token_id, *addresses)
 
             await self.db.commit()
 

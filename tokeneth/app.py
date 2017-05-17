@@ -18,7 +18,12 @@ urls = [
     (r"^/v1/timestamp/?$", GenerateTimestamp),
     (r"^/v1/(apn|gcm)/register/?$", handlers.PNRegistrationHandler),
     (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
-    (r"^/v1/ws/?$", websocket.WebsocketHandler)
+    (r"^/v1/ws/?$", websocket.WebsocketHandler),
+
+    # legacy
+    (r"^/v1/register/?$", handlers.LegacyRegistrationHandler),
+    (r"^/v1/deregister/?$", handlers.LegacyDeregistrationHandler),
+
 ]
 
 class Application(tokenservices.web.Application):
