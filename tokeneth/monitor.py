@@ -21,7 +21,7 @@ JSONRPC_ERRORS = (tornado.httpclient.HTTPError,
                   OSError,  # No route to host
                  )
 
-class BlockMonitor(DatabaseMixin, TaskListenerApplication):
+class BlockMonitor(TaskListenerApplication):
 
     def __init__(self, *args, listener_id="block_monitor", **kwargs):
 
@@ -54,15 +54,14 @@ class BlockMonitor(DatabaseMixin, TaskListenerApplication):
         await super().start()
 
         # check what the last block number checked was last time this was started
-        async with self.db:
-            row = await self.db.fetchrow("SELECT blocknumber FROM last_blocknumber")
+        async with self.connection_pool.acquire() as con:
+            row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
         if row is None:
             # if there was no previous start, get the current block number
             # and start from there
             last_block_number = await self.eth.eth_blockNumber()
-            async with self.db:
-                await self.db.execute("INSERT INTO last_blocknumber VALUES ($1)", last_block_number)
-                await self.db.commit()
+            async with self.connection_pool.acquire() as con:
+                await con.execute("INSERT INTO last_blocknumber VALUES ($1)", last_block_number)
         else:
             last_block_number = row['blocknumber']
 
@@ -147,10 +146,9 @@ class BlockMonitor(DatabaseMixin, TaskListenerApplication):
                     await self.process_transaction(tx)
 
                 self.last_block_number += 1
-                async with self.db:
-                    await self.db.execute("UPDATE last_blocknumber SET blocknumber = $1",
-                                          self.last_block_number)
-                    await self.db.commit()
+                async with self.connection_pool.acquire() as con:
+                    await con.execute("UPDATE last_blocknumber SET blocknumber = $1",
+                                      self.last_block_number)
 
             else:
 
@@ -261,21 +259,21 @@ class BlockMonitor(DatabaseMixin, TaskListenerApplication):
         to_address = transaction['to']
         from_address = transaction['from']
 
-        async with self.db:
+        async with self.connection_pool.acquire() as con:
             # find if we have a record of this tx by checking the from address and nonce
-            db_txs = await self.db.fetch("SELECT * FROM transactions WHERE "
-                                         "from_address = $1 AND nonce = $2",
-                                         from_address, parse_int(transaction['nonce']))
+            db_txs = await con.fetch("SELECT * FROM transactions WHERE "
+                                     "from_address = $1 AND nonce = $2",
+                                     from_address, parse_int(transaction['nonce']))
             if len(db_txs) > 1:
                 # see if one has the same hash
-                db_tx = await self.db.fetchrow("SELECT * FROM transactions WHERE "
-                                               "from_address = $1 AND nonce = $2 AND hash = $3 AND (status != $4 OR status IS NULL)",
-                                               from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                db_tx = await con.fetchrow("SELECT * FROM transactions WHERE "
+                                           "from_address = $1 AND nonce = $2 AND hash = $3 AND (status != $4 OR status IS NULL)",
+                                           from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
                 if db_tx is None:
                     # find if there are any that aren't marked as error
-                    no_error = await self.db.fetch("SELECT * FROM transactions WHERE "
-                                                   "from_address = $1 AND nonce = $2 AND hash != $3 AND (status != $4 OR status IS NULL)",
-                                                   from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                    no_error = await con.fetch("SELECT * FROM transactions WHERE "
+                                               "from_address = $1 AND nonce = $2 AND hash != $3 AND (status != $4 OR status IS NULL)",
+                                               from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
                     if len(no_error) == 1:
                         db_tx = no_error[0]
                     elif len(no_error) != 0:
@@ -309,13 +307,13 @@ class BlockMonitor(DatabaseMixin, TaskListenerApplication):
                     return
 
             # find out if there is anyone interested in this transaction
-            is_interesting = await self.db.fetchrow("SELECT 1 FROM notification_registrations "
-                                                    "WHERE eth_address = $1 OR eth_address = $2",
-                                                    to_address, from_address)
+            is_interesting = await con.fetchrow("SELECT 1 FROM notification_registrations "
+                                                "WHERE eth_address = $1 OR eth_address = $2",
+                                                to_address, from_address)
             if is_interesting:
                 # if so, add it to the database and trigger an update
                 # add tx to database
-                db_tx = await self.db.fetchrow(
+                db_tx = await con.fetchrow(
                     "INSERT INTO transactions "
                     "(hash, from_address, to_address, nonce, "
                     "value, gas, gas_price, "
@@ -325,7 +323,6 @@ class BlockMonitor(DatabaseMixin, TaskListenerApplication):
                     transaction['hash'], from_address, to_address, parse_int(transaction['nonce']),
                     str(parse_int(transaction['value'])), str(parse_int(transaction['gas'])), str(parse_int(transaction['gasPrice'])),
                     transaction['input'])
-                await self.db.commit()
                 self.tasks.update_transaction(
                     db_tx['transaction_id'],
                     'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
