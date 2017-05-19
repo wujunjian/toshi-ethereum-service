@@ -92,7 +92,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
 
         if value:
             value = parse_int(value)
-            if value is None:
+            if value is None or value < 0:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
 
         # check optional arguments

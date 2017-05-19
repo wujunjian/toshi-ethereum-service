@@ -558,3 +558,20 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(resp.code, 200, resp.body)
         resp = await self.fetch("/tx", method="POST", body={"tx": stx2})
         self.assertEqual(resp.code, 200, resp.body)
+
+    @gen_test(timeout=30)
+    @requires_database
+    @requires_redis
+    @requires_task_manager
+    @requires_parity
+    async def test_trying_to_create_negative_value_txs(self):
+        """Ensures Attempting to request a negative balance transaction skeleton
+        fails gracefully"""
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": -(10 ** 18)
+        })
+
+        self.assertResponseCodeEqual(resp, 400, resp.body)
