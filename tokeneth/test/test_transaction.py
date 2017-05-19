@@ -4,10 +4,11 @@ from tornado.escape import json_decode, json_encode
 from tornado.testing import gen_test
 from tornado.platform.asyncio import to_asyncio_future
 
-from tokeneth.test.base import EthServiceBaseTest, requires_task_manager, requires_block_monitor, requires_full_stack
+from tokeneth.test.base import EthServiceBaseTest, requires_task_manager, requires_full_stack
 from tokenservices.test.database import requires_database
 from tokenservices.test.redis import requires_redis
 from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from tokenservices.analytics import encode_id
 from tokenservices.request import sign_request
 from tokenservices.ethereum.utils import data_decoder, data_encoder
 from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
@@ -47,6 +48,9 @@ class TransactionTest(EthServiceBaseTest):
         resp = await self.fetch("/tx", method="POST", body=body)
 
         self.assertEqual(resp.code, 200, resp.body)
+
+        # ensure we get a tracking events
+        self.assertEqual((await self.next_tracking_event())[0], None)
 
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
@@ -106,6 +110,9 @@ class TransactionTest(EthServiceBaseTest):
         resp = await self.fetch("/tx", method="POST", body=body)
 
         self.assertEqual(resp.code, 200, resp.body)
+
+        # ensure we get a tracking events
+        self.assertEqual((await self.next_tracking_event())[0], None)
 
         body = json_decode(resp.body)
         tx_hash = body['tx_hash']
@@ -205,6 +212,7 @@ class TransactionTest(EthServiceBaseTest):
     @gen_test(timeout=30)
     @requires_full_stack
     async def test_empty_account(self):
+        """Makes sure an account can be emptied completely"""
 
         val = 10 ** 16
         default_fees = DEFAULT_STARTGAS * DEFAULT_GASPRICE
@@ -280,6 +288,9 @@ class TransactionTest(EthServiceBaseTest):
         resp = await self.fetch_signed("/tx", signing_key=TEST_PRIVATE_KEY_2, method="POST", body=body)
 
         self.assertEqual(resp.code, 200, resp.body)
+
+        # ensure we get a tracking events with a live id
+        self.assertEqual((await self.next_tracking_event())[0], encode_id(TEST_ADDRESS_2))
 
         tx_hash = json_decode(resp.body)['tx_hash']
 

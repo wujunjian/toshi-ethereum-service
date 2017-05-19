@@ -1,6 +1,7 @@
 import binascii
 from tokenservices.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
 from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
+from tokenservices.analytics import AnalyticsMixin
 from tokenservices.database import DatabaseMixin
 from tokenservices.ethereum.mixin import EthereumMixin
 from tokenservices.redis import RedisMixin
@@ -30,7 +31,7 @@ class JsonRPCInsufficientFundsError(JsonRPCError):
                          'id' not in request if request else False)
 
 
-class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, RedisMixin):
+class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, AnalyticsMixin, RedisMixin):
 
     def __init__(self, user_token_id, application):
         self.user_token_id = user_token_id
@@ -247,6 +248,8 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, R
 
             # trigger processing the transaction queue
             self.tasks.process_transaction_queue(from_address)
+            # analytics
+            self.track(self.user_token_id, "Sent transaction")
 
         return tx_hash
 

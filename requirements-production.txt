@@ -1,1 +1,2 @@
+mixpanel
 -e git+ssh://git@github.com/tokenbrowser/token-services-lib.git@production#egg=token-services

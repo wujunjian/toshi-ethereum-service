@@ -5,6 +5,7 @@ from tokenservices.database import DatabaseMixin
 from tokenservices.ethereum.mixin import EthereumMixin
 from tokenservices.jsonrpc.errors import JsonRPCError
 from tokenservices.redis import RedisMixin
+from tokenservices.analytics import AnalyticsMixin
 
 from tokenservices.sofa import SofaPayment
 from tokenservices.handlers import RequestVerificationMixin
@@ -176,7 +177,7 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
 
         self.set_status(204)
 
-class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+class PNDeregistrationHandler(RequestVerificationMixin, AnalyticsMixin, DatabaseMixin, BaseHandler):
 
     async def post(self, service):
 
@@ -206,6 +207,7 @@ class PNDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandl
             await self.db.commit()
 
         self.set_status(204)
+        self.track(token_id, "Deregistered ETH notifications")
 
 class LegacyRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
     """backwards compatibility for old pn registration"""
@@ -250,7 +252,7 @@ class LegacyRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHan
 
         self.set_status(204)
 
-class LegacyDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
+class LegacyDeregistrationHandler(RequestVerificationMixin, AnalyticsMixin, DatabaseMixin, BaseHandler):
 
     async def post(self):
 
@@ -276,3 +278,4 @@ class LegacyDeregistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseH
             await self.db.commit()
 
         self.set_status(204)
+        self.track(token_id, "Deregistered ETH notifications")
