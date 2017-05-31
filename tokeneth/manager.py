@@ -226,11 +226,11 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
             if status == 'confirmed':
                 blocknumber = parse_int((await self.eth.eth_getTransactionByHash(tx['hash']))['blockNumber'])
-                await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, confirmed = (now() AT TIME ZONE 'utc') "
+                await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
                                       "WHERE transaction_id = $3",
                                       status, blocknumber, transaction_id)
             else:
-                await self.db.execute("UPDATE transactions SET status = $1 WHERE transaction_id = $2",
+                await self.db.execute("UPDATE transactions SET status = $1, updated = (now() AT TIME ZONE 'utc') WHERE transaction_id = $2",
                                       status, transaction_id)
             await self.db.commit()
 

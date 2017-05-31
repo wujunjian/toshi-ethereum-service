@@ -70,8 +70,8 @@ class TransactionTest(EthServiceBaseTest):
             if row['status'] == 'confirmed':
                 break
 
-        # make sure confirmed field is set
-        self.assertIsNotNone(row['confirmed'])
+        # make sure updated field is updated
+        self.assertGreater(row['updated'], row['created'])
 
         # make sure balance is returned correctly
         resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))
@@ -586,3 +586,24 @@ class TransactionTest(EthServiceBaseTest):
         })
 
         self.assertResponseCodeEqual(resp, 400, resp.body)
+
+    @gen_test(timeout=15)
+    @requires_full_stack
+    async def test_only_from_and_to_required(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+        self.assertEqual(resp.code, 200)
+        body = json_decode(resp.body)
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+        resp = await self.fetch("/tx", method="POST", body={
+            "tx": tx
+        })
+        self.assertEqual(resp.code, 200, resp.body)
+
+        # ensure we get a tracking events
+        self.assertEqual((await self.next_tracking_event())[0], None)

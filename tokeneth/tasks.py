@@ -50,7 +50,7 @@ class TaskListenerApplication(ConfigurationManager):
             self.redis_connection_pool = redis_connection_pool
             self.connection_pool = connection_pool
         else:
-            self.prepare_databases()
+            self.prepare_databases(handle_migration=False)
 
         self.task_listener = TaskListener(
             handlers,

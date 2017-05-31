@@ -1,15 +1,19 @@
 import asyncio
 import os
 import uuid
+import time
 
 import tornado.ioloop
 import tornado.websocket
 import tornado.web
 
+from datetime import datetime
 from tokenservices.database import DatabaseMixin
 from tokenservices.handlers import RequestVerificationMixin
 from tokenservices.utils import validate_address
 from tokenservices.tasks import TaskHandler
+from tokenservices.sofa import SofaPayment
+from tokenservices.utils import parse_int
 
 from tokenservices.log import log
 from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError
@@ -51,6 +55,55 @@ class WebsocketJsonRPCHandler(TokenEthJsonRPC):
 
         return list(self.request_handler.subscription_ids)
 
+    def get_timestamp(self):
+        return int(time.time())
+
+    async def list_payment_updates(self, address, start_time, end_time=None):
+
+        try:
+            return (await self._list_payment_updates(address, start_time, end_time))
+        except:
+            import traceback
+            traceback.print_exc()
+            raise
+
+    async def _list_payment_updates(self, address, start_time, end_time=None):
+
+        if end_time is None:
+            end_time = datetime.utcnow()
+        elif not isinstance(end_time, datetime):
+            end_time = datetime.utcfromtimestamp(end_time)
+        if not isinstance(start_time, datetime):
+            start_time = datetime.utcfromtimestamp(start_time)
+
+        async with self.db:
+            txs = await self.db.fetch(
+                "SELECT * FROM transactions WHERE "
+                "(from_address = $1 OR to_address = $1) AND "
+                "updated > $2 AND updated < $3"
+                "ORDER BY transaction_id ASC",
+                address, start_time, end_time)
+        payments = []
+        for tx in txs:
+            status = tx['status']
+            if status is None or status == 'queued':
+                status = 'unconfirmed'
+            value = parse_int(tx['value'])
+            if value is None:
+                value = 0
+            else:
+                value = hex(value)
+            # if the tx was created before the start time, send the unconfirmed
+            # message as well.
+            if status == 'confirmed' and tx['created'] > start_time:
+                payments.append(SofaPayment(status='unconfirmed', txHash=tx['hash'],
+                                            value=value, fromAddress=tx['from_address'],
+                                            toAddress=tx['to_address']).render())
+            payments.append(SofaPayment(status=status, txHash=tx['hash'],
+                                        value=value, fromAddress=tx['from_address'],
+                                        toAddress=tx['to_address']).render())
+
+        return payments
 
 class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, RequestVerificationMixin):
 

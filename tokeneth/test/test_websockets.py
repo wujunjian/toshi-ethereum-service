@@ -1,10 +1,15 @@
 import asyncio
+import os
+import time
+import random
+from datetime import datetime
 from tokenservices.test.base import TokenWebSocketJsonRPCClient
 from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
 from tokeneth.app import urls
 from tornado.testing import gen_test
 from tokenservices.test.ethereum.faucet import FaucetMixin
 from tokenservices.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
+from tokenservices.ethereum.utils import data_encoder
 from tokenservices.sofa import SofaPayment, parse_sofa_message
 
 from tokeneth.test.test_transaction import (
@@ -175,3 +180,78 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
                          "int('{}', 16) != {}".format(result['confirmed_balance'], new_balance))
         self.assertEqual(int(result['unconfirmed_balance'][2:], 16), new_balance,
                          "int('{}', 16) != {}".format(result['unconfirmed_balance'], new_balance))
+
+    @gen_test(timeout=60)
+    @requires_full_stack
+    async def test_list_payment_updates(self):
+
+        addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
+
+        thetime = int(time.time())
+
+        # make sure half of the unconfirmed txs
+        stime = thetime - 300
+
+        async def store_tx(status, created, updated=None):
+            tx_hash = data_encoder(os.urandom(64))
+            from_addr = data_encoder(os.urandom(20))
+            value = random.randint(10**15, 10**20)
+            if updated is None:
+                updated = created
+            async with self.pool.acquire() as con:
+                    await con.execute(
+                        "INSERT INTO transactions (hash, from_address, to_address, nonce, value, gas, gas_price, status, created, updated) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                        tx_hash, from_addr, addr, 1, value,
+                        DEFAULT_STARTGAS, DEFAULT_GASPRICE, status,
+                        datetime.utcfromtimestamp(created),
+                        datetime.utcfromtimestamp(updated))
+
+        txs_per_state = 5
+        # create 5 transactions that were created before the start time, but confirmed after
+
+        created = stime - 30
+        updated = stime + 30
+        for i in range(0, txs_per_state):
+            await store_tx('confirmed', created + i, updated + i)
+
+        # create 5 transactions that were both created and confirmed during the requested period
+        created = stime + 30
+        updated = stime + 60
+        for i in range(0, txs_per_state):
+            await store_tx('confirmed', created + i, updated + i)
+
+        # create 5 transactions created but not confirmed during the requested period
+        created = stime + 60
+        for i in range(0, txs_per_state):
+            await store_tx('unconfirmed', created + i)
+
+        # create 5 transactions outside of the requested period
+        created = thetime
+        for i in range(0, txs_per_state):
+            await store_tx('unconfirmed', created + i)
+
+        ws_con = await self.websocket_connect(TEST_ID_KEY)
+
+        result = await ws_con.call("list_payment_updates", [addr, stime, thetime])
+
+        # expect 5 confirmed payments
+        c = 0
+        for i in range(0, txs_per_state):
+            self.assertEquals(parse_sofa_message(result[c + i])['status'], 'confirmed')
+
+        # expect 5 txs with both unconfirmed and confirmed
+        c += txs_per_state
+        for i in range(0, txs_per_state):
+            self.assertEquals(parse_sofa_message(result[c + (i * 2)])['status'], 'unconfirmed')
+            self.assertEquals(parse_sofa_message(result[c + (i * 2) + 1])['status'], 'confirmed')
+
+        c += txs_per_state * 2
+
+        # expect 5 unconfirmed txs
+        for i in range(0, txs_per_state):
+            self.assertEquals(parse_sofa_message(result[c + i])['status'], 'unconfirmed')
+
+        # make sure there's no more!
+        c += txs_per_state
+        self.assertEqual(len(result), c)
