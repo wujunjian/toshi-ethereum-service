@@ -22,7 +22,7 @@ TEST_ADDRESS_2 = "0x35351b44e03ec8515664a955146bf9c6e503a381"
 
 class TransactionTest(EthServiceBaseTest):
 
-    @gen_test(timeout=15)
+    @gen_test(timeout=30)
     @requires_full_stack
     async def test_create_and_send_transaction(self):
 
