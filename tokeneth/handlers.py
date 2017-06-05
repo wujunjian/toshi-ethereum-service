@@ -38,6 +38,8 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
                 self.json['from_address'] = self.json.pop('from')
             if 'to' in self.json:
                 self.json['to_address'] = self.json.pop('to')
+            elif 'to_address' not in self.json:
+                self.json['to_address'] = None
             # the following are to deal with different representations
             # of the same concept from different places
             if 'gasPrice' in self.json:

@@ -464,6 +464,51 @@ class TransactionTest(EthServiceBaseTest):
 
         self.assertEqual(resp.code, 200)
 
+        tx = sign_transaction(json_decode(resp.body)['tx'], FAUCET_PRIVATE_KEY)
+        print(", ".join(["0x{:02x}".format(b) for b in data_decoder(tx)]))
+        print(FAUCET_ADDRESS)
+        print(", ".join(["0x{:02x}".format(b) for b in decode_transaction(tx).hash]))
+
+    @gen_test(timeout=30)
+    @requires_full_stack
+    async def test_create_tx_with_no_to_address(self):
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "data": data_encoder(b"Hello World"),
+            "value": 0,
+            "gas": 530000,
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200)
+
+        body = json_decode(resp.body)
+
+        tx = sign_transaction(body['tx'], FAUCET_PRIVATE_KEY)
+
+        body = {
+            "tx": tx
+        }
+
+        resp = await self.fetch("/tx", method="POST", body=body)
+
+        self.assertEqual(resp.code, 200, resp.body)
+
+        body = json_decode(resp.body)
+        tx_hash = body['tx_hash']
+
+        tx = decode_transaction(tx)
+        self.assertEqual(tx_hash, data_encoder(tx.hash))
+
+        async with self.pool.acquire() as con:
+            rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
+        self.assertEqual(len(rows), 1)
+        print(rows[0])
+
+        await self.wait_on_tx_confirmation(tx_hash)
+
     @gen_test(timeout=30)
     @requires_database
     @requires_redis

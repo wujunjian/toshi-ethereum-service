@@ -205,7 +205,9 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                         break
 
         for address in addresses_to_check:
-            self.tasks.process_transaction_queue(address)
+            # make sure we don't try process any contract deployments
+            if address != "0x":
+                self.tasks.process_transaction_queue(address)
 
         if transactions_out:
             self.tasks.process_transaction_queue(ethereum_address)
@@ -250,6 +252,10 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         # figure out what addresses need pns
         # from address always needs a pn
         self.tasks.send_notification(tx['from_address'], message)
+
+        # no need to check to_address for contract deployments
+        if tx['to_address'] == "0x":
+            return
 
         # check if this is a brand new tx with no status
         if tx['status'] is None:
@@ -324,7 +330,9 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 addresses_to_check.add(ethereum_address)
 
         for address in addresses_to_check:
-            self.tasks.process_transaction_queue(address)
+            # make sure we don't try process any contract deployments
+            if address != "0x":
+                self.tasks.process_transaction_queue(address)
 
         if frequency:
             self.tasks.sanity_check(frequency, delay=frequency)

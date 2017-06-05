@@ -257,6 +257,9 @@ class BlockMonitor(TaskListenerApplication):
     async def process_transaction(self, transaction):
 
         to_address = transaction['to']
+        # make sure we use a valid encoding of "empty" for contract deployments
+        if to_address is None:
+            to_address = "0x"
         from_address = transaction['from']
 
         async with self.connection_pool.acquire() as con:

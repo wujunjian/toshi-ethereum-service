@@ -88,7 +88,7 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
 
-        if not validate_address(to_address):
+        if to_address is not None and not validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address'})
 
         if value:
