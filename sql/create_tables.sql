@@ -26,16 +26,16 @@ CREATE TABLE IF NOT EXISTS transactions (
     error INTEGER,
 
     -- optional token identifier for the sender
-    sender_token_id VARCHAR
+    sender_toshi_id VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS notification_registrations (
-    token_id VARCHAR,
+    toshi_id VARCHAR,
     service VARCHAR,
     registration_id VARCHAR,
     eth_address VARCHAR,
 
-    PRIMARY KEY(token_id, service, registration_id, eth_address)
+    PRIMARY KEY(toshi_id, service, registration_id, eth_address)
 );
 
 CREATE TABLE IF NOT EXISTS last_blocknumber (
@@ -51,4 +51,4 @@ CREATE INDEX IF NOT EXISTS idx_transactions_from_address_nonce ON transactions (
 
 CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notification_registrations (eth_address);
 
-UPDATE database_version SET version_number = 4;
+UPDATE database_version SET version_number = 5;

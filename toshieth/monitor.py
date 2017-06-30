@@ -2,19 +2,19 @@ import asyncio
 import logging
 import time
 import tornado.httpclient
-from tokenservices.jsonrpc.client import JsonRPCClient
-from tokenservices.log import configure_logger
-from tokenservices.database import DatabaseMixin
-from tokenservices.tasks import TaskDispatcher
+from toshi.jsonrpc.client import JsonRPCClient
+from toshi.log import configure_logger
+from toshi.database import DatabaseMixin
+from toshi.tasks import TaskDispatcher
 
-from tokenservices.utils import parse_int
+from toshi.utils import parse_int
 
 from .tasks import TaskListenerApplication
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 5
 
-log = logging.getLogger("tokeneth.monitor")
+log = logging.getLogger("toshieth.monitor")
 
 JSONRPC_ERRORS = (tornado.httpclient.HTTPError,
                   ConnectionRefusedError,  # Server isn't running

@@ -3,21 +3,21 @@ import warnings
 
 from tornado.escape import json_decode
 from tornado.testing import gen_test
-from tokenservices.test.ethereum.faucet import FaucetMixin
-from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction
-from tokenservices.sofa import SofaPayment, parse_sofa_message
-from tokenservices.ethereum.utils import data_encoder
+from toshi.test.ethereum.faucet import FaucetMixin
+from toshi.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction
+from toshi.sofa import SofaPayment, parse_sofa_message
+from toshi.ethereum.utils import data_encoder
 
-from tokeneth.test.base import requires_full_stack, EthServiceBaseTest
+from toshieth.test.base import requires_full_stack, EthServiceBaseTest
 
-from tokeneth.test.test_transaction import (
+from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
     TEST_ADDRESS as TEST_ID_ADDRESS,
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshieth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
 class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
 
@@ -43,8 +43,8 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 204, resp.body)
 
         async with self.pool.acquire() as con:
-            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
-            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", FAUCET_ADDRESS)
+            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ID_ADDRESS)
+            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", FAUCET_ADDRESS)
         self.assertEqual(len(rows1), 1)
         self.assertEqual(len(rows2), 1)
 
@@ -107,7 +107,7 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 204, resp.body)
 
         async with self.pool.acquire() as con:
-            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ID_ADDRESS)
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 2)
 
@@ -149,7 +149,7 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 204, resp.body)
 
         async with self.pool.acquire() as con:
-            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ID_ADDRESS)
         self.assertIsNotNone(rows)
         self.assertEqual(len(rows), 1)
 

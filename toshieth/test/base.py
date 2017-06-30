@@ -1,19 +1,19 @@
 import asyncio
 
-import tokeneth.monitor
-import tokeneth.manager
-import tokeneth.push_service
+import toshieth.monitor
+import toshieth.manager
+import toshieth.push_service
 
-from tokenservices.test.base import AsyncHandlerTest
-from tokeneth.app import Application, urls
+from toshi.test.base import AsyncHandlerTest
+from toshieth.app import Application, urls
 from tornado.escape import json_decode
 
-from tokenservices.ethereum.utils import private_key_to_address, data_encoder
-from tokenservices.ethereum.tx import sign_transaction
+from toshi.ethereum.utils import private_key_to_address, data_encoder
+from toshi.ethereum.tx import sign_transaction
 
-from tokenservices.test.database import requires_database
-from tokenservices.test.redis import requires_redis
-from tokenservices.test.ethereum.parity import requires_parity
+from toshi.test.database import requires_database
+from toshi.test.redis import requires_redis
+from toshi.test.ethereum.parity import requires_parity
 
 class EthServiceBaseTest(AsyncHandlerTest):
 
@@ -92,7 +92,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
         tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce)
         return await self.sign_and_send_tx(from_key, tx)
 
-def requires_block_monitor(func=None, cls=tokeneth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
+def requires_block_monitor(func=None, cls=toshieth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
     """Used to ensure all database connections are returned to the pool
     before finishing the test"""
 
@@ -141,7 +141,7 @@ def requires_task_manager(func=None, pass_manager=False):
             if 'redis' not in self._app.config:
                 raise Exception("Missing redis config from setup")
 
-            task_manager = tokeneth.manager.TaskManager(
+            task_manager = toshieth.manager.TaskManager(
                 config=self._app.config,
                 connection_pool=self._app.connection_pool,
                 redis_connection_pool=self._app.redis_connection_pool)
@@ -180,7 +180,7 @@ def requires_push_service(func, cls, pass_push_service=False, pass_push_client=F
                 raise Exception("Missing redis config from setup")
 
             pushclient = cls()
-            push_service = tokeneth.push_service.PushNotificationService(
+            push_service = toshieth.push_service.PushNotificationService(
                 config=self._app.config,
                 connection_pool=self._app.connection_pool,
                 redis_connection_pool=self._app.redis_connection_pool,
@@ -218,11 +218,11 @@ class MockPushClient:
     def __init__(self):
         self.send_queue = asyncio.Queue()
 
-    async def send(self, token_id, network, device_token, data):
+    async def send(self, toshi_id, network, device_toshi, data):
         if len(data) > 1 or 'message' not in data:
             raise NotImplementedError("Only data key allowed is 'message'")
 
-        self.send_queue.put_nowait((device_token, data))
+        self.send_queue.put_nowait((device_toshi, data))
 
     def get(self):
         return self.send_queue.get()

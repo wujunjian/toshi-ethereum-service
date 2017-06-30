@@ -1,7 +1,7 @@
 FORMAT: 1A
 HOST: https://ethereum.service.tokenbrowser.com
 
-# Token Ethereum Service
+# Toshi Ethereum Service
 
 This service is a light service that sits ontop of a standard ethereum node and provides helper functions for creating and sending transactions.
 
@@ -48,7 +48,7 @@ so it is important that the same address is used to sign the returned skeleton.
 
 ### Send transaction [POST]
 
-This has two different options. It either accepts the same transaction hash returned by the skeleton generation endpoint as well as the signature to authorise that, or it can simply accept an rlp encoded signed transaction. Additionally a request can be signed, this is required if it's desired that the recipient of the transaction should know who (i.e. which token identity) the transaction has originated from.
+This has two different options. It either accepts the same transaction hash returned by the skeleton generation endpoint as well as the signature to authorise that, or it can simply accept an rlp encoded signed transaction. Additionally a request can be signed, this is required if it's desired that the recipient of the transaction should know who (i.e. which toshi identity) the transaction has originated from.
 
 + Request (application/json)
 
@@ -68,9 +68,9 @@ This has two different options. It either accepts the same transaction hash retu
 
     + Headers
 
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
     + Body
         {
@@ -199,15 +199,15 @@ Returns the balance of the given address. Two values are returned, `confirmed_ba
 
 ### APN Registration [POST]
 
-Register for APN push notifications. This links a token identity to a push notification token and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the token id.
+Register for APN push notifications. This links a toshi identity to a push notification toshi and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the toshi id.
 
 + Request (application/json)
 
     + Headers
 
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
     + Body
 
@@ -255,15 +255,15 @@ Register for APN push notifications. This links a token identity to a push notif
 
 ### GCM Registration [POST]
 
-Register for Google Cloud Messaging push notifications. This links a token identity to a push notification token and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the token id.
+Register for Google Cloud Messaging push notifications. This links a toshi identity to a push notification toshi and an ethereum address. This will enable push notifications for the given addresses. If no address is given, this will default to the toshi id.
 
 + Request (application/json)
 
     + Headers
 
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
     + Body
 
@@ -337,9 +337,9 @@ All the above endpoints can be accessed through a websocket based json-rpc inter
         Connection: Upgrade
         Sec-WebSocket-Key: YcwVhryr7tewuz3a7XAs8Q==
         Sec-WebSocket-Version: 13
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
 ## Deregister apple push notifications [/v1/apn/deregister]
 
@@ -351,9 +351,9 @@ Deregister the given address from the given registration_id. If no address is gi
 
     + Headers
 
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
     + Body
 
@@ -374,9 +374,9 @@ Deregister the given address from the given registration_id. If no address is gi
 
     + Headers
 
-        Token-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
-        Token-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
-        Token-Timestamp: 1480077346
+        Toshi-ID-Address: 0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a
+        Toshi-Signature: 0xc39a479a92fe8d626324ff82a33684610ecd6b50714f59542a1ea558220ec6246a9193dd481078417b3b44d55933989587459d3dd50295d4da67d6580ac8646801
+        Toshi-Timestamp: 1480077346
 
     + Body
 
@@ -536,14 +536,14 @@ e.g.
             "gasPrice": "0x09184e72a000",
             "input": "0x603880600c6000396000f300603880600c6000396000f3603880600c6000396000f360",
         },
-        "sender_token_id": "0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"
+        "sender_toshi_id": "0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb"
     }
 }
 ```
 
 - `subscription`: the subscribed address for which this notification was generated.
 - `transaction`: the transaction details (the same as returned by the node, i.e. https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_gettransactionbyhash).
-- `sender_token_id`: the token id address of the user whom sent the transaction (null if the transaction was sent anonymously).
+- `sender_toshi_id`: the toshi id address of the user whom sent the transaction (null if the transaction was sent anonymously).
 
 ## Subscribe `subscribe`
 

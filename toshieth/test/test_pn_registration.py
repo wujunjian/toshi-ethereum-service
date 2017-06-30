@@ -3,12 +3,12 @@ import time
 from tornado.escape import json_encode, json_decode
 from tornado.testing import gen_test
 
-from tokeneth.app import urls
-from tokenservices.test.base import AsyncHandlerTest
-from tokenservices.test.database import requires_database
-from tokenservices.request import sign_request
-from tokenservices.ethereum.utils import data_decoder
-from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshieth.app import urls
+from toshi.test.base import AsyncHandlerTest
+from toshi.test.database import requires_database
+from toshi.request import sign_request
+from toshi.ethereum.utils import data_decoder
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -44,11 +44,11 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
             rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE eth_address = $1", TEST_ADDRESS)
 
         self.assertEqual(len(rows1), 1)
-        self.assertEqual(len(rows2), 1, "token id not used as default when registering pns")
+        self.assertEqual(len(rows2), 1, "toshi id not used as default when registering pns")
 
     @gen_test
     @requires_database
@@ -68,8 +68,8 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
-            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", FAUCET_ADDRESS)
+            rows1 = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
+            rows2 = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", FAUCET_ADDRESS)
 
         self.assertEqual(len(rows1), 0)
         self.assertEqual(len(rows2), 0)
@@ -96,7 +96,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
 
         self.assertEqual(len(rows), 1)
 
@@ -119,7 +119,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -140,7 +140,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            row = await con.fetchrow("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
 
         self.assertIsNone(row)
 
@@ -165,7 +165,7 @@ class PNRegistrationTest(AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
 
-            rows = await con.fetch("SELECT * FROM notification_registrations WHERE token_id = $1", TEST_ADDRESS)
+            rows = await con.fetch("SELECT * FROM notification_registrations WHERE toshi_id = $1", TEST_ADDRESS)
 
         self.assertEqual(len(rows), 1)
 

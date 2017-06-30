@@ -1,4 +1,4 @@
-web: bin/start-stunnel python -m tokeneth --port=$PORT
-monitor: bin/start-stunnel python -m tokeneth.monitor
-manager: bin/start-stunnel python -m tokeneth.manager
-pushservice: bin/start-stunnel python -m tokeneth.push_service
+web: bin/start-stunnel python -m toshieth --port=$PORT
+monitor: bin/start-stunnel python -m toshieth.monitor
+manager: bin/start-stunnel python -m toshieth.manager
+pushservice: bin/start-stunnel python -m toshieth.push_service

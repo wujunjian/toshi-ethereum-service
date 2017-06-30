@@ -1,19 +1,19 @@
 import asyncio
 
 from tornado.testing import gen_test
-from tokenservices.test.ethereum.faucet import FaucetMixin
-from tokeneth.test.base import requires_full_stack, EthServiceBaseTest
-from tokenservices.ethereum.tx import sign_transaction, decode_transaction
-from tokenservices.jsonrpc.client import JsonRPCClient
+from toshi.test.ethereum.faucet import FaucetMixin
+from toshieth.test.base import requires_full_stack, EthServiceBaseTest
+from toshi.ethereum.tx import sign_transaction, decode_transaction
+from toshi.jsonrpc.client import JsonRPCClient
 
-from tokeneth.test.test_transaction import (
+from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
     TEST_ADDRESS as TEST_ID_ADDRESS,
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokeneth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshieth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
 class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
 
@@ -25,7 +25,7 @@ class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
 
         # set up pn registrations
         async with self.pool.acquire() as con:
-            await con.fetch("INSERT INTO notification_registrations (service, registration_id, token_id, eth_address) VALUES ($1, $2, $3, $4)",
+            await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",
                             'gcm', TEST_GCM_ID, TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
 
         # get tx skeleton
@@ -69,7 +69,7 @@ class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
 
         # set up pn registrations
         async with self.pool.acquire() as con:
-            await con.fetch("INSERT INTO notification_registrations (service, registration_id, token_id, eth_address) VALUES ($1, $2, $3, $4)",
+            await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",
                             'gcm', TEST_GCM_ID, TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
 
         # send initial tx
@@ -113,7 +113,7 @@ class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):
 
         # set up pn registrations
         async with self.pool.acquire() as con:
-            await con.fetch("INSERT INTO notification_registrations (service, registration_id, token_id, eth_address) VALUES ($1, $2, $3, $4)",
+            await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",
                             'gcm', TEST_GCM_ID, TEST_ID_ADDRESS, TEST_WALLET_ADDRESS)
 
         # get tx skeleton

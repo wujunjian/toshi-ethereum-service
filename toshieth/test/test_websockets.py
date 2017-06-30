@@ -3,16 +3,16 @@ import os
 import time
 import random
 from datetime import datetime
-from tokenservices.test.base import TokenWebSocketJsonRPCClient
-from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
-from tokeneth.app import urls
+from toshi.test.base import ToshiWebSocketJsonRPCClient
+from toshieth.test.base import EthServiceBaseTest, requires_full_stack
+from toshieth.app import urls
 from tornado.testing import gen_test
-from tokenservices.test.ethereum.faucet import FaucetMixin
-from tokenservices.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
-from tokenservices.ethereum.utils import data_encoder
-from tokenservices.sofa import SofaPayment, parse_sofa_message
+from toshi.test.ethereum.faucet import FaucetMixin
+from toshi.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
+from toshi.ethereum.utils import data_encoder
+from toshi.sofa import SofaPayment, parse_sofa_message
 
-from tokeneth.test.test_transaction import (
+from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
     TEST_ADDRESS as TEST_ID_ADDRESS,
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
@@ -22,7 +22,7 @@ from tokeneth.test.test_transaction import (
 class WebsocketTest(FaucetMixin, EthServiceBaseTest):
 
     async def websocket_connect(self, signing_key):
-        con = TokenWebSocketJsonRPCClient(self.get_url("/ws"), signing_key=signing_key)
+        con = ToshiWebSocketJsonRPCClient(self.get_url("/ws"), signing_key=signing_key)
         await con.connect()
         return con
 
@@ -36,7 +36,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         await ws_con.call("subscribe", [TEST_ID_ADDRESS])
 
         async with self.pool.acquire() as con:
-            row = await con.fetchrow("SELECT COUNT(*) FROM notification_registrations WHERE token_id = $1", TEST_ID_ADDRESS)
+            row = await con.fetchrow("SELECT COUNT(*) FROM notification_registrations WHERE toshi_id = $1", TEST_ID_ADDRESS)
         self.assertEqual(row['count'], 1)
 
         tx_hash = await self.faucet(TEST_ID_ADDRESS, val)
@@ -55,7 +55,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         result = await ws_con.read(timeout=1)
         self.assertIsNone(result)
 
-        # make sure subscriptions to a different address from the token id work
+        # make sure subscriptions to a different address from the toshi id work
         await ws_con.call("subscribe", [TEST_WALLET_ADDRESS])
 
         tx_hash = await self.faucet(TEST_WALLET_ADDRESS, val)

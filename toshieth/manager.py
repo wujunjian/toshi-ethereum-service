@@ -1,23 +1,23 @@
 import asyncio
 import logging
 
-from tokenservices.database import DatabaseMixin
-from tokenservices.redis import RedisMixin
-from tokeneth.mixins import BalanceMixin
-from tokenservices.ethereum.mixin import EthereumMixin
-from tokenservices.jsonrpc.errors import JsonRPCError
-from tokenservices.log import configure_logger
-from tokenservices.utils import parse_int
-from tokenservices.tasks import TaskHandler, TaskDispatcher
-from tokenservices.sofa import SofaPayment
-from tokenservices.ethereum.tx import (
+from toshi.database import DatabaseMixin
+from toshi.redis import RedisMixin
+from toshieth.mixins import BalanceMixin
+from toshi.ethereum.mixin import EthereumMixin
+from toshi.jsonrpc.errors import JsonRPCError
+from toshi.log import configure_logger
+from toshi.utils import parse_int
+from toshi.tasks import TaskHandler, TaskDispatcher
+from toshi.sofa import SofaPayment
+from toshi.ethereum.tx import (
     create_transaction, add_signature_to_transaction, encode_transaction
 )
-from tokenservices.ethereum.utils import data_decoder, data_encoder
+from toshi.ethereum.utils import data_decoder, data_encoder
 
-from tokeneth.tasks import TaskListenerApplication
+from toshieth.tasks import TaskListenerApplication
 
-log = logging.getLogger("tokeneth.manager")
+log = logging.getLogger("toshieth.manager")
 
 class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceMixin, TaskHandler):
 

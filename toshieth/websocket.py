@@ -8,25 +8,25 @@ import tornado.websocket
 import tornado.web
 
 from datetime import datetime
-from tokenservices.database import DatabaseMixin
-from tokenservices.handlers import RequestVerificationMixin
-from tokenservices.utils import validate_address
-from tokenservices.tasks import TaskHandler
-from tokenservices.sofa import SofaPayment
-from tokenservices.utils import parse_int
+from toshi.database import DatabaseMixin
+from toshi.handlers import RequestVerificationMixin
+from toshi.utils import validate_address
+from toshi.tasks import TaskHandler
+from toshi.sofa import SofaPayment
+from toshi.utils import parse_int
 
-from tokenservices.log import log
-from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError
-from .jsonrpc import TokenEthJsonRPC
+from toshi.log import log
+from toshi.jsonrpc.errors import JsonRPCInvalidParamsError
+from .jsonrpc import ToshiEthJsonRPC
 
-class WebsocketJsonRPCHandler(TokenEthJsonRPC):
+class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
 
     """Special handling for subscribe/unsubscribe when handled over
     websockets
     """
 
-    def __init__(self, user_token_id, application, request_handler):
-        super().__init__(user_token_id, application)
+    def __init__(self, user_toshi_id, application, request_handler):
+        super().__init__(user_toshi_id, application)
         self.request_handler = request_handler
 
     async def subscribe(self, *addresses):
@@ -112,7 +112,7 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
     @tornado.web.asynchronous
     def get(self, *args, **kwargs):
 
-        self.user_token_id = self.verify_request()
+        self.user_toshi_id = self.verify_request()
         self.subscription_ids = set()
         return super().get(*args, **kwargs)
 
@@ -142,7 +142,7 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
     async def _on_message(self, message):
         try:
             response = await WebsocketJsonRPCHandler(
-                self.user_token_id, self.application, self)(message)
+                self.user_toshi_id, self.application, self)(message)
             if response:
                 self.write_message(response)
         except:
@@ -158,9 +158,9 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
         async with self.db:
             for address in addresses:
                 await self.db.execute(
-                    "INSERT INTO notification_registrations (token_id, service, registration_id, eth_address) "
-                    "VALUES ($1, $2, $3, $4) ON CONFLICT (token_id, service, registration_id, eth_address) DO NOTHING",
-                    self.user_token_id, 'ws', self.session_id, address)
+                    "INSERT INTO notification_registrations (toshi_id, service, registration_id, eth_address) "
+                    "VALUES ($1, $2, $3, $4) ON CONFLICT (toshi_id, service, registration_id, eth_address) DO NOTHING",
+                    self.user_toshi_id, 'ws', self.session_id, address)
             await self.db.commit()
 
         for address in addresses:
@@ -173,8 +173,8 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
         async with self.db:
             for address in addresses:
                 await self.db.execute(
-                    "DELETE FROM notification_registrations WHERE token_id = $1 AND service = $2 AND registration_id = $3 AND eth_address = $4",
-                    self.user_token_id, 'ws', self.session_id, address)
+                    "DELETE FROM notification_registrations WHERE toshi_id = $1 AND service = $2 AND registration_id = $3 AND eth_address = $4",
+                    self.user_toshi_id, 'ws', self.session_id, address)
         for address in addresses:
             self.application.task_listener.unsubscribe(
                 address, self.send_transaction_notification)

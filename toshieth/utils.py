@@ -1,6 +1,6 @@
-from tokenservices.utils import parse_int
-from tokenservices.ethereum.utils import data_decoder
-from tokenservices.ethereum.tx import (
+from toshi.utils import parse_int
+from toshi.ethereum.utils import data_decoder
+from toshi.ethereum.tx import (
     create_transaction, add_signature_to_transaction
 )
 

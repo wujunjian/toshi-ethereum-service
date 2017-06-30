@@ -17,8 +17,8 @@ dependencies:
     - sudo apt-get update
     - sudo apt-get install -y ethereum ethminer
     - if [[ ! -d ~/.ethash ]]; then ethminer -D 0; fi
-    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.6.7/x86_64-unknown-linux-gnu/parity_1.6.7_amd64.deb
-    - sudo dpkg -i parity_1.6.7_amd64.deb
+    - wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.6.8/x86_64-unknown-linux-gnu/parity_1.6.8_amd64.deb
+    - sudo dpkg -i parity_1.6.8_amd64.deb
     - pip install -r requirements-testing.txt
     - ./configure_environment.sh
     - pip install --upgrade -r requirements.txt
@@ -27,13 +27,13 @@ dependencies:
 
 test:
   override:
-    - python -m tornado.testing discover -s tokeneth/test
+    - python -m tornado.testing discover -s toshieth/test
 
 deployment:
   development:
     branch: master
     commands:
-      - git clone --depth 1 git@github.com:tokenbrowser/docs.git $HOME/docs
+      - git clone --depth 1 git@github.com:toshiapp/docs.git $HOME/docs
       - $HOME/docs/deploy-blueprint.sh $CIRCLE_PROJECT_REPONAME docs/api.apib $CIRCLE_SHA1
       - git push -f git@heroku.com:token-eth-service-development.git $CIRCLE_SHA1:master
   production:

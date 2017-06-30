@@ -3,18 +3,18 @@ import random
 
 from tornado.testing import gen_test
 from datetime import datetime, timedelta
-from tokenservices.ethereum.tx import decode_transaction
-from tokenservices.ethereum.utils import data_encoder
+from toshi.ethereum.tx import decode_transaction
+from toshi.ethereum.utils import data_encoder
 
-from tokeneth.test.base import requires_full_stack, EthServiceBaseTest
+from toshieth.test.base import requires_full_stack, EthServiceBaseTest
 
-from tokeneth.test.test_transaction import (
+from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
     TEST_ADDRESS as TEST_ID_ADDRESS,
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 
 class TestSanityChecker(EthServiceBaseTest):
 

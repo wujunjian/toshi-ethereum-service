@@ -2,10 +2,10 @@ import asyncio
 from tornado.testing import gen_test
 from tornado.escape import json_decode
 
-from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
-from tokenservices.test.ethereum.faucet import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenservices.ethereum.tx import sign_transaction
-from tokenservices.jsonrpc.client import JsonRPCClient
+from toshieth.test.base import EthServiceBaseTest, requires_full_stack
+from toshi.test.ethereum.faucet import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.ethereum.tx import sign_transaction
+from toshi.jsonrpc.client import JsonRPCClient
 
 class ContractTest(EthServiceBaseTest):
 

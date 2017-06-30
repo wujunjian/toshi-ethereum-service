@@ -1,8 +1,8 @@
 import asyncio
 import os
-from tokenservices.tasks import TaskListener
-from tokenservices.web import ConfigurationManager
-from tokeneth.websocket import WebsocketNotificationHandler
+from toshi.tasks import TaskListener
+from toshi.web import ConfigurationManager
+from toshieth.websocket import WebsocketNotificationHandler
 from tornado.ioloop import IOLoop
 
 class EthServiceTaskListener(TaskListener):
@@ -15,10 +15,10 @@ class EthServiceTaskListener(TaskListener):
 
     def subscribe(self, eth_address, callback):
         """Registers a callback to receive transaction notifications for the
-        given token identifier.
+        given toshi identifier.
 
         The callback must accept 2 parameters, the transaction dict, and the
-        sender's token identifier"""
+        sender's toshi identifier"""
         callbacks = self.callbacks.setdefault(eth_address, [])
         if callback not in callbacks:
             callbacks.append(callback)

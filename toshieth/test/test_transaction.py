@@ -4,15 +4,15 @@ from tornado.escape import json_decode, json_encode
 from tornado.testing import gen_test
 from tornado.platform.asyncio import to_asyncio_future
 
-from tokeneth.test.base import EthServiceBaseTest, requires_task_manager, requires_full_stack
-from tokenservices.test.database import requires_database
-from tokenservices.test.redis import requires_redis
-from tokenservices.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenservices.analytics import encode_id
-from tokenservices.request import sign_request
-from tokenservices.ethereum.utils import data_decoder, data_encoder
-from tokenservices.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
-from tokenservices.utils import parse_int
+from toshieth.test.base import EthServiceBaseTest, requires_task_manager, requires_full_stack
+from toshi.test.database import requires_database
+from toshi.test.redis import requires_redis
+from toshi.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.analytics import encode_id
+from toshi.request import sign_request
+from toshi.ethereum.utils import data_decoder, data_encoder
+from toshi.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from toshi.utils import parse_int
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -267,7 +267,7 @@ class TransactionTest(EthServiceBaseTest):
     @requires_redis
     @requires_task_manager
     @requires_parity
-    async def test_transactions_with_known_sender_token_id(self):
+    async def test_transactions_with_known_sender_toshi_id(self):
 
         body = {
             "from": FAUCET_ADDRESS,
@@ -296,11 +296,11 @@ class TransactionTest(EthServiceBaseTest):
 
         async with self.pool.acquire() as con:
 
-            row = await con.fetch("SELECT * FROM transactions WHERE sender_token_id = $1", FAUCET_ADDRESS)
+            row = await con.fetch("SELECT * FROM transactions WHERE sender_toshi_id = $1", FAUCET_ADDRESS)
 
             self.assertEqual(len(row), 0)
 
-            row = await con.fetch("SELECT * FROM transactions WHERE sender_token_id = $1", TEST_ADDRESS_2)
+            row = await con.fetch("SELECT * FROM transactions WHERE sender_toshi_id = $1", TEST_ADDRESS_2)
 
             self.assertEqual(len(row), 1)
             self.assertEqual(row[0]['from_address'], FAUCET_ADDRESS)
@@ -312,7 +312,7 @@ class TransactionTest(EthServiceBaseTest):
     @requires_redis
     @requires_task_manager
     @requires_parity
-    async def test_transactions_with_known_sender_token_id_but_invalid_signature(self):
+    async def test_transactions_with_known_sender_toshi_id_but_invalid_signature(self):
 
         body = {
             "from": FAUCET_ADDRESS,
@@ -517,17 +517,16 @@ class TransactionTest(EthServiceBaseTest):
     async def test_create_and_send_transaction_with_custom_values(self):
 
         # try creating a skel that is invalid
+        # (should be invalid due to amount of gas being too low)
         body = {
             "from": FAUCET_ADDRESS,
             "to": TEST_ADDRESS,
             "gas": 21000,
             "gasPrice": 20000000000,
-            "nonce": 1,
             "data": "0xffffffff"
         }
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
-
         self.assertEqual(resp.code, 400)
 
         # make sure valid values are fine (incresed max gas and let skel pick the nonce)

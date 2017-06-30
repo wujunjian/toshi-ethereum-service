@@ -11,4 +11,4 @@ fi
 # if [ -e requirements-testing.txt ]; then
 #     env/bin/pip -q install -r requirements-testing.txt
 # fi
-env/bin/python -m tornado.testing discover -s tokeneth/test
+env/bin/python -m tornado.testing discover -s toshieth/test

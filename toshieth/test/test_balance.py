@@ -1,18 +1,18 @@
-from tokenservices.test.base import AsyncHandlerTest
-from tokeneth.app import urls
+from toshi.test.base import AsyncHandlerTest
+from toshieth.app import urls
 from tornado.escape import json_decode
 from tornado.testing import gen_test
-from tokenservices.test.database import requires_database
-from tokenservices.test.ethereum.parity import requires_parity
-from tokenservices.test.ethereum.faucet import FaucetMixin, FAUCET_ADDRESS
-from tokenservices.utils import parse_int
+from toshi.test.database import requires_database
+from toshi.test.ethereum.parity import requires_parity
+from toshi.test.ethereum.faucet import FaucetMixin, FAUCET_ADDRESS
+from toshi.utils import parse_int
 
-from tokenservices.handlers import BaseHandler
-from tokenservices.database import DatabaseMixin
-from tokenservices.ethereum.mixin import EthereumMixin
-from tokeneth.mixins import BalanceMixin
+from toshi.handlers import BaseHandler
+from toshi.database import DatabaseMixin
+from toshi.ethereum.mixin import EthereumMixin
+from toshieth.mixins import BalanceMixin
 
-from tokenservices.ethereum.tx import DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from toshi.ethereum.tx import DEFAULT_STARTGAS, DEFAULT_GASPRICE
 
 class BalanceTest(FaucetMixin, AsyncHandlerTest):
 

@@ -1,14 +1,14 @@
-import tokenservices.web
+import toshi.web
 import os
 
 from . import handlers
 from . import websocket
 from .tasks import EthServiceTaskListener
 
-from tokenservices.handlers import GenerateTimestamp
+from toshi.handlers import GenerateTimestamp
 
-from tokenservices.log import configure_logger
-from tokenservices.log import log as services_log
+from toshi.log import configure_logger
+from toshi.log import log as services_log
 
 urls = [
     (r"^/v1/tx/skel/?$", handlers.TransactionSkeletonHandler),
@@ -26,7 +26,7 @@ urls = [
 
 ]
 
-class Application(tokenservices.web.Application):
+class Application(toshi.web.Application):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

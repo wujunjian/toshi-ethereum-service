@@ -14,7 +14,7 @@ env/bin/pip install -r requirements.txt
 ### Running
 
 ```
-DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_NODE_URL=<jsonrpc-url> env/bin/python -m tokeneth
+DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_NODE_URL=<jsonrpc-url> env/bin/python -m toshieth
 ```
 
 ## Running on heroku
@@ -52,9 +52,9 @@ heroku config:set BUILDPACK_RUN=configure_environment.sh
 #### Extra Config variables
 
 ```
-heroku config:set PUSH_URL=<token-push-service-url>
-heroku config:set PUSH_USERNAME=<token-push-service-username>
-heroku config:set PUSH_PASSWORD=<token-push-service-password>
+heroku config:set PUSH_URL=<toshi-push-service-url>
+heroku config:set PUSH_USERNAME=<toshi-push-service-username>
+heroku config:set PUSH_PASSWORD=<toshi-push-service-password>
 heroku config:set PGSQL_STUNNEL_ENABLED=1
 heroku config:set ETHEREUM_NODE_URL=<jsonrpc-url>
 ```
@@ -63,7 +63,7 @@ Optional:
 
 ```
 heroku config:set SLACK_LOG_URL=<slack-webhook-url>
-heroku config:set SLACK_LOG_USERNAME="token-eth-log-bot"
+heroku config:set SLACK_LOG_USERNAME="toshi-eth-log-bot"
 ```
 
 The `Procfile` and `runtime.txt` files required for running on heroku
@@ -96,7 +96,7 @@ A convinience script exists to run all tests:
 To run a single test, use:
 
 ```
-env/bin/python -m tornado.testing tokeneth.test.<test-package>
+env/bin/python -m tornado.testing toshieth.test.<test-package>
 ```
 
 # Structure

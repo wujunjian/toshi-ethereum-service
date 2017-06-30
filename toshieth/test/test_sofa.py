@@ -1,11 +1,11 @@
 from tornado.escape import json_decode
 from tornado.testing import gen_test
 
-from tokeneth.test.base import EthServiceBaseTest, requires_full_stack
-from tokenservices.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from tokenservices.sofa import parse_sofa_message
-from tokenservices.ethereum.utils import data_decoder
-from tokenservices.ethereum.tx import sign_transaction
+from toshieth.test.base import EthServiceBaseTest, requires_full_stack
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.sofa import parse_sofa_message
+from toshi.ethereum.utils import data_decoder
+from toshi.ethereum.tx import sign_transaction
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"

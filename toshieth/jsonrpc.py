@@ -1,25 +1,25 @@
 import binascii
-from tokenservices.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
-from tokenservices.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
-from tokenservices.analytics import AnalyticsMixin
-from tokenservices.database import DatabaseMixin
-from tokenservices.ethereum.mixin import EthereumMixin
-from tokenservices.redis import RedisMixin
-from tokenservices.ethereum.utils import data_decoder, data_encoder
+from toshi.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
+from toshi.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
+from toshi.analytics import AnalyticsMixin
+from toshi.database import DatabaseMixin
+from toshi.ethereum.mixin import EthereumMixin
+from toshi.redis import RedisMixin
+from toshi.ethereum.utils import data_decoder, data_encoder
 from ethereum.exceptions import InvalidTransaction
-from tokenservices.tasks import TaskDispatcher
+from toshi.tasks import TaskDispatcher
 from functools import partial
-from tokenservices.utils import (
+from toshi.utils import (
     validate_address, parse_int, validate_signature, validate_transaction_hash
 )
-from tokenservices.ethereum.tx import (
+from toshi.ethereum.tx import (
     DEFAULT_STARTGAS, DEFAULT_GASPRICE, create_transaction,
     encode_transaction, decode_transaction, is_transaction_signed,
     signature_from_transaction, add_signature_to_transaction,
     transaction_to_json, calculate_transaction_hash
 )
 
-from tokenservices.log import log
+from toshi.log import log
 
 from .mixins import BalanceMixin
 from .utils import RedisLock, database_transaction_to_rlp_transaction
@@ -31,10 +31,10 @@ class JsonRPCInsufficientFundsError(JsonRPCError):
                          'id' not in request if request else False)
 
 
-class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, AnalyticsMixin, RedisMixin):
+class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, AnalyticsMixin, RedisMixin):
 
-    def __init__(self, user_token_id, application):
-        self.user_token_id = user_token_id
+    def __init__(self, user_toshi_id, application):
+        self.user_toshi_id = user_toshi_id
         self.application = application
 
     @property
@@ -143,6 +143,12 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         except InvalidTransaction as e:
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_transaction', 'message': str(e)})
 
+        if tx.intrinsic_gas_used > gas:
+            raise JsonRPCInvalidParamsError(data={
+                'id': 'invalid_transaction',
+                'message': 'Transaction gas is too low. There is not enough gas to cover minimal cost of the transaction (minimal: {}, got: {}). Try increasing supplied gas.'.format(
+                    tx.intrinsic_gas_used, gas)})
+
         transaction = encode_transaction(tx)
 
         return transaction
@@ -227,6 +233,12 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             if tx.nonce > c_nonce:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
 
+            if tx.intrinsic_gas_used > tx.startgas:
+                raise JsonRPCInvalidParamsError(data={
+                    'id': 'invalid_transaction',
+                    'message': 'Transaction gas is too low. There is not enough gas to cover minimal cost of the transaction (minimal: {}, got: {}). Try increasing supplied gas.'.format(
+                        tx.intrinsic_gas_used, tx.startgas)})
+
             # now this tx fits enough of the criteria to allow it
             # onto the transaction queue
             tx_hash = calculate_transaction_hash(tx)
@@ -238,18 +250,18 @@ class TokenEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     "(hash, from_address, to_address, nonce, "
                     "value, gas, gas_price, "
                     "data, signature, "
-                    "sender_token_id) "
+                    "sender_toshi_id) "
                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
                     tx_hash, from_address, to_address, tx.nonce,
                     str(tx.value), str(tx.startgas), str(tx.gasprice),
                     data_encoder(tx.data), signature,
-                    self.user_token_id)
+                    self.user_toshi_id)
                 await self.db.commit()
 
             # trigger processing the transaction queue
             self.tasks.process_transaction_queue(from_address)
             # analytics
-            self.track(self.user_token_id, "Sent transaction")
+            self.track(self.user_toshi_id, "Sent transaction")
 
         return tx_hash
 

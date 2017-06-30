@@ -2,14 +2,14 @@ import logging
 import os
 from configparser import SectionProxy
 
-from tokenservices.tasks import TaskHandler
-from tokenservices.database import DatabaseMixin
-from tokenservices.log import configure_logger
-from tokenservices.push import PushServerClient, GCMHttpPushClient
+from toshi.tasks import TaskHandler
+from toshi.database import DatabaseMixin
+from toshi.log import configure_logger
+from toshi.push import PushServerClient, GCMHttpPushClient
 
-from tokeneth.tasks import TaskListenerApplication
+from toshieth.tasks import TaskListenerApplication
 
-log = logging.getLogger("tokeneth.push_service")
+log = logging.getLogger("toshieth.push_service")
 
 class PushNotificationHandler(DatabaseMixin, TaskHandler):
 
@@ -26,7 +26,7 @@ class PushNotificationHandler(DatabaseMixin, TaskHandler):
             service = row['service']
             if service in ['gcm', 'apn']:
                 log.info("Sending {} PN to: {} ({})".format(service, eth_address, row['registration_id']))
-                await self.pushclient.send(row['token_id'], service, row['registration_id'], {"message": message})
+                await self.pushclient.send(row['toshi_id'], service, row['registration_id'], {"message": message})
 
 class PushNotificationService(TaskListenerApplication):
 
