@@ -6,9 +6,12 @@ from . import websocket
 from .tasks import EthServiceTaskListener
 
 from toshi.handlers import GenerateTimestamp
+from toshi.jsonrpc.client import JsonRPCClient
 
 from toshi.log import configure_logger
 from toshi.log import log as services_log
+
+from tornado.platform.asyncio import to_asyncio_future
 
 urls = [
     (r"^/v1/tx/skel/?$", handlers.TransactionSkeletonHandler),
@@ -37,6 +40,13 @@ class Application(toshi.web.Application):
 
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
+
+        if 'ethereum' in config:
+            if 'ETHEREUM_NETWORK_ID' in os.environ:
+                config['ethereum']['network_id'] = os.environ['ETHEREUM_NETWORK_ID']
+            else:
+                config['ethereum']['network_id'] = self.asyncio_loop.run_until_complete(
+                    to_asyncio_future(JsonRPCClient(config['ethereum']['url']).net_version()))
 
         configure_logger(services_log)
 

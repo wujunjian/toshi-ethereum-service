@@ -1,9 +1,11 @@
 import asyncio
 import os
+from toshi.jsonrpc.client import JsonRPCClient
 from toshi.tasks import TaskListener
 from toshi.web import ConfigurationManager
 from toshieth.websocket import WebsocketNotificationHandler
 from tornado.ioloop import IOLoop
+from tornado.platform.asyncio import to_asyncio_future
 
 class EthServiceTaskListener(TaskListener):
     def __init__(self, application, queue=None, ioloop=None):
@@ -63,6 +65,12 @@ class TaskListenerApplication(ConfigurationManager):
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
+        if 'ethereum' in config:
+            if 'ETHEREUM_NETWORK_ID' in os.environ:
+                config['ethereum']['network_id'] = os.environ['ETHEREUM_NETWORK_ID']
+            else:
+                config['ethereum']['network_id'] = self.asyncio_loop.run_until_complete(
+                    to_asyncio_future(JsonRPCClient(config['ethereum']['url']).net_version()))
         return config
 
     def start(self):

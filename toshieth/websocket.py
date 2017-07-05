@@ -96,12 +96,18 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
             # if the tx was created before the start time, send the unconfirmed
             # message as well.
             if status == 'confirmed' and tx['created'] > start_time:
-                payments.append(SofaPayment(status='unconfirmed', txHash=tx['hash'],
-                                            value=value, fromAddress=tx['from_address'],
-                                            toAddress=tx['to_address']).render())
-            payments.append(SofaPayment(status=status, txHash=tx['hash'],
-                                        value=value, fromAddress=tx['from_address'],
-                                        toAddress=tx['to_address']).render())
+                payments.append(SofaPayment(
+                    status='unconfirmed', txHash=tx['hash'],
+                    value=value, fromAddress=tx['from_address'],
+                    toAddress=tx['to_address'],
+                    networkId=self.application.config['ethereum']['network_id']
+                ).render())
+            payments.append(SofaPayment(
+                status=status, txHash=tx['hash'],
+                value=value, fromAddress=tx['from_address'],
+                toAddress=tx['to_address'],
+                networkId=self.application.config['ethereum']['network_id']
+            ).render())
 
         return payments
 

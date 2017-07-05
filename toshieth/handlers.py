@@ -107,7 +107,7 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
                 tx = transaction_to_json(database_transaction_to_rlp_transaction(row))
             if row['status'] == 'error':
                 tx['error'] = True
-            payment = SofaPayment.from_transaction(tx)
+            payment = SofaPayment.from_transaction(tx, networkId=self.application.config['ethereum']['network_id'])
             message = payment.render()
             self.set_header('Content-Type', 'text/plain')
             self.write(message.encode('utf-8'))

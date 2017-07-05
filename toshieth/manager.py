@@ -246,7 +246,8 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             return
 
         payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
-                              fromAddress=tx['from_address'], toAddress=tx['to_address'])
+                              fromAddress=tx['from_address'], toAddress=tx['to_address'],
+                              networkId=self.application.config['ethereum']['network_id'])
         message = payment.render()
 
         # figure out what addresses need pns
