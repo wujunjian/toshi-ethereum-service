@@ -1,3 +1,4 @@
+from toshi.utils import parse_int
 
 class BalanceMixin:
 
@@ -33,11 +34,11 @@ class BalanceMixin:
                 "OR (status = 'confirmed' AND blocknumber > $2))",
                 eth_address, block or 0)
 
-        pending_sent = sum(int(p['value']) + (int(p['gas']) * int(p['gas_price']))
+        pending_sent = sum(parse_int(p['value']) + (parse_int(p['gas']) * parse_int(p['gas_price']))
                            for p in pending_sent
                            if include_queued or p['status'] == 'unconfirmed')
 
-        pending_received = sum(int(p['value'])
+        pending_received = sum(parse_int(p['value'])
                                for p in pending_received
                                if include_queued or p['status'] == 'unconfirmed')
 

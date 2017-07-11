@@ -92,6 +92,10 @@ class EthServiceBaseTest(AsyncHandlerTest):
         tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce)
         return await self.sign_and_send_tx(from_key, tx)
 
+    @property
+    def network_id(self):
+        return int(self._app.config['ethereum']['network_id'])
+
 def requires_block_monitor(func=None, cls=toshieth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
     """Used to ensure all database connections are returned to the pool
     before finishing the test"""

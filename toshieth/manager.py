@@ -65,7 +65,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 "SELECT * FROM transactions "
                 "WHERE from_address = $1 "
                 "AND (status is NULL OR status = 'queued') "
-                "AND signature IS NOT NULL "
+                "AND r IS NOT NULL "
                 # order by nonce reversed so that .pop() can
                 # be used in the loop below
                 "ORDER BY nonce DESC",
@@ -137,10 +137,10 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     # create the transaction
                     data = data_decoder(transaction['data']) if transaction['data'] else b''
                     tx = create_transaction(nonce=nonce, value=value, gasprice=gas_price, startgas=gas,
-                                            to=transaction['to_address'],
-                                            data=data)
-                    sig = data_decoder(transaction['signature'])
-                    tx = add_signature_to_transaction(tx, sig)
+                                            to=transaction['to_address'], data=data,
+                                            v=parse_int(transaction['v']),
+                                            r=parse_int(transaction['r']),
+                                            s=parse_int(transaction['s']))
                     # make sure the signature was valid
                     if data_encoder(tx.sender) != ethereum_address:
                         # signature is invalid for the user
@@ -184,7 +184,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                             ethereum_address, last_blocknumber or 0)
 
                     # TODO: test if loops in the queue chain are problematic
-                    pending_received = sum(int(p['value']) for p in transactions_in)
+                    pending_received = sum((parse_int(p['value']) or 0) for p in transactions_in)
 
                     if balance + pending_received < cost:
                         previous_error = True

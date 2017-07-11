@@ -43,6 +43,10 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             self._task_dispatcher = TaskDispatcher(self.application.task_listener)
         return self._task_dispatcher
 
+    @property
+    def network_id(self):
+        return parse_int(self.application.config['ethereum']['network_id'])
+
     async def get_balance(self, address):
 
         if not validate_address(address):
@@ -139,7 +143,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         try:
             tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
-                                    to=to_address, value=value, data=data)
+                                    to=to_address, value=value, data=data,
+                                    network_id=self.network_id)
         except InvalidTransaction as e:
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_transaction', 'message': str(e)})
 
@@ -198,6 +203,13 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
             add_signature_to_transaction(tx, sig)
 
+        # validate network id, if it's not for "all networks"
+        if tx.network_id is not None and self.network_id != tx.network_id:
+            raise JsonRPCInvalidParamsError(data={
+                'id': 'invalid_network_id',
+                'message': 'Invalid Network ID'
+            })
+
         from_address = data_encoder(tx.sender)
         to_address = data_encoder(tx.to)
 
@@ -249,12 +261,12 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     "INSERT INTO transactions "
                     "(hash, from_address, to_address, nonce, "
                     "value, gas, gas_price, "
-                    "data, signature, "
+                    "data, v, r, s, "
                     "sender_toshi_id) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
                     tx_hash, from_address, to_address, tx.nonce,
-                    str(tx.value), str(tx.startgas), str(tx.gasprice),
-                    data_encoder(tx.data), signature,
+                    hex(tx.value), hex(tx.startgas), hex(tx.gasprice),
+                    data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                     self.user_toshi_id)
                 await self.db.commit()
 

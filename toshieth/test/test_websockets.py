@@ -145,7 +145,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         ethminer.pause()
 
         tx = create_transaction(nonce=0x100000, gasprice=DEFAULT_GASPRICE, startgas=DEFAULT_STARTGAS,
-                                to=addr, value=val2)
+                                to=addr, value=val2, network_id=self.network_id)
         tx = sign_transaction(tx, TEST_ID_KEY)
         tx = encode_transaction(tx)
 

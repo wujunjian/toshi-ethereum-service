@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     gas_price VARCHAR,
 
     data VARCHAR,
-    signature VARCHAR,
+    v VARCHAR,
+    r VARCHAR,
+    s VARCHAR,
 
     created TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc'),
     updated TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc'),
@@ -51,4 +53,4 @@ CREATE INDEX IF NOT EXISTS idx_transactions_from_address_nonce ON transactions (
 
 CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notification_registrations (eth_address);
 
-UPDATE database_version SET version_number = 5;
+UPDATE database_version SET version_number = 6;

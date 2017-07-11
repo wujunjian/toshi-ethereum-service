@@ -64,6 +64,7 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
             self.assertIsInstance(message, SofaPayment)
             self.assertEqual(message['value'], hex(value))
             self.assertEqual(message['txHash'], tx_hash)
+            self.assertEqual(message['networkId'], '66')
 
             if message['status'] == "confirmed":
                 # ensures that the 2 expected confirmed pns are

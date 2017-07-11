@@ -33,8 +33,10 @@ def database_transaction_to_rlp_transaction(transaction):
     gas_price = parse_int(transaction['gas_price'])
 
     tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
-                            to=transaction['to_address'], value=value, data=data_decoder(transaction['data']))
-    if transaction['signature']:
-        tx = add_signature_to_transaction(tx, transaction['signature'])
+                            to=transaction['to_address'], value=value,
+                            data=data_decoder(transaction['data']),
+                            v=parse_int(transaction['v']),
+                            r=parse_int(transaction['r']),
+                            s=parse_int(transaction['s']))
 
     return tx
