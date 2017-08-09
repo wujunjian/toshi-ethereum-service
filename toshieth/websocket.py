@@ -30,6 +30,8 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
         self.request_handler = request_handler
 
     async def subscribe(self, *addresses):
+        if not addresses:
+            raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
         for address in addresses:
             if not validate_address(address):
                 raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
@@ -37,7 +39,6 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
         try:
             await self.request_handler.subscribe(addresses)
         except:
-            log.exception("fuck")
             raise
 
         return True

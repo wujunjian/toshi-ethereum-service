@@ -11,6 +11,7 @@ from toshi.test.ethereum.faucet import FaucetMixin
 from toshi.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
 from toshi.ethereum.utils import data_encoder
 from toshi.sofa import SofaPayment, parse_sofa_message
+from toshi.jsonrpc.errors import JsonRPCError
 
 from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY as TEST_ID_KEY,
@@ -255,3 +256,17 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         # make sure there's no more!
         c += txs_per_state
         self.assertEqual(len(result), c)
+
+    @gen_test(timeout=30)
+    @requires_full_stack
+    async def test_subscribe_with_bad_args(self):
+
+        ws_con = await self.websocket_connect(TEST_ID_KEY)
+
+        # make sure trying to subscribe without the params
+        # being in brackets fails
+        with self.assertRaises(JsonRPCError):
+            await ws_con.call("subscribe", TEST_ID_ADDRESS)
+
+        with self.assertRaises(JsonRPCError):
+            await ws_con.call("subscribe", "not an address")
