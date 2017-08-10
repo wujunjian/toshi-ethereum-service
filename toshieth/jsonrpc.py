@@ -273,7 +273,22 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             # trigger processing the transaction queue
             self.tasks.process_transaction_queue(from_address)
             # analytics
-            self.track(self.user_toshi_id, "Sent transaction")
+            # use notification registrations to try find toshi ids for users
+            if self.user_toshi_id:
+                sender_toshi_id = self.user_toshi_id
+            else:
+                async with self.db:
+                    sender_toshi_id = await self.db.fetchval(
+                        "SELECT toshi_id FROM notification_registrations WHERE "
+                        "eth_address = $1",
+                        from_address)
+            async with self.db:
+                receiver_toshi_id = await self.db.fetchval(
+                    "SELECT toshi_id FROM notification_registrations WHERE "
+                    "eth_address = $1",
+                    to_address)
+            self.track(sender_toshi_id, "Sent transaction")
+            self.track(receiver_toshi_id, "Received transaction")
 
         return tx_hash
 
