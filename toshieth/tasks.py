@@ -65,6 +65,9 @@ class TaskListenerApplication(ConfigurationManager):
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
+        if 'MONITOR_ETHEREUM_NODE_URL' in os.environ:
+            config['monitor'] = {'url': os.environ['MONITOR_ETHEREUM_NODE_URL']}
+
         if 'ethereum' in config:
             if 'ETHEREUM_NETWORK_ID' in os.environ:
                 config['ethereum']['network_id'] = os.environ['ETHEREUM_NETWORK_ID']

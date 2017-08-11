@@ -62,6 +62,7 @@ heroku config:set ETHEREUM_NODE_URL=<jsonrpc-url>
 Optional:
 
 ```
+heroku config:set MONITOR_ETHEREUM_NODE_URL=<jsonrpc-url>
 heroku config:set SLACK_LOG_URL=<slack-webhook-url>
 heroku config:set SLACK_LOG_USERNAME="toshi-eth-log-bot"
 ```

@@ -32,7 +32,13 @@ class BlockMonitor(TaskListenerApplication):
 
         configure_logger(log)
 
-        self.eth = JsonRPCClient(self.config['ethereum']['url'])
+        if 'monitor' in self.config:
+            node_url = self.config['monitor']['url']
+        else:
+            log.warning("monitor using config['ethereum'] node")
+            node_url = self.config['ethereum']['url']
+
+        self.eth = JsonRPCClient(node_url)
 
         self._check_schedule = None
         self._poll_schedule = None
