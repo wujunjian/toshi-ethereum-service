@@ -50,7 +50,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
                             break
                 return body
 
-    async def get_tx_skel(self, from_key, to_addr, val, nonce=None):
+    async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None):
         from_addr = private_key_to_address(from_key)
         body = {
             "from": from_addr,
@@ -59,6 +59,10 @@ class EthServiceBaseTest(AsyncHandlerTest):
         }
         if nonce is not None:
             body['nonce'] = nonce
+        if gas_price is not None:
+            body['gasPrice'] = gas_price
+        if gas is not None:
+            body['gas'] = gas
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
 

@@ -4,10 +4,11 @@ from tornado.escape import json_decode
 from tornado.testing import gen_test
 
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
-from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS, ParityServer
+from toshi.test.ethereum.ethminer import EthMiner
 from toshi.test.ethereum.faucet import FaucetMixin
 from toshi.ethereum.utils import data_decoder, data_encoder, private_key_to_address
-from toshi.ethereum.tx import sign_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from toshi.ethereum.tx import decode_transaction, sign_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
 from toshi.utils import parse_int
 from toshi.jsonrpc.client import JsonRPCClient
 
@@ -245,17 +246,32 @@ class TransactionQueueTest(EthServiceBaseTest):
     async def test_tx_queue_error_propagation(self, *, ethminer, parity, push_client):
         """Tests that a long chain of txs depending on a single transaction propagate errors correctly"""
 
+        # start 2nd parity server
+        p2 = ParityServer(bootnodes=parity.dsn()['node'])
+        e2 = EthMiner(jsonrpc_url=p2.dsn()['url'],
+                      debug=False)
+        rpcclient = JsonRPCClient(p2.dsn()['url'])
+
         default_fees = DEFAULT_STARTGAS * DEFAULT_GASPRICE
 
-        val = 1000 ** 18
+        val = 100 * 10 ** 18
         txs = []
         # send funds to address1
         f_tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS_1, val)
 
         await self.ensure_confirmed(f_tx_hash)
 
+        # make sure the nodes are synchronized
+        while True:
+            bal = await rpcclient.eth_getBalance(TEST_ADDRESS_1)
+            if bal == 0:
+                await asyncio.sleep(1)
+            else:
+                break
+
         # make sure no blocks are mined
         ethminer.pause()
+        e2.pause()
 
         addresses = [(TEST_ADDRESS_1, TEST_PRIVATE_KEY_1),
                      (TEST_ADDRESS_2, TEST_PRIVATE_KEY_2),
@@ -269,6 +285,13 @@ class TransactionQueueTest(EthServiceBaseTest):
                 await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",
                                 'gcm', "abc", addr, addr)
 
+        # send a tx from outside the system first which wont be seen by
+        # the system until after the transactions generated in the next block
+        tx = await self.get_tx_skel(TEST_PRIVATE_KEY_1, FAUCET_ADDRESS, val - default_fees)
+        tx = sign_transaction(tx, TEST_PRIVATE_KEY_1)
+        await rpcclient.eth_sendRawTransaction(tx)
+
+        # generate internal transactions
         for i in range(len(addresses) * 2):
             val = val - default_fees
             addr1, pk1 = addresses[0]
@@ -278,18 +301,14 @@ class TransactionQueueTest(EthServiceBaseTest):
             txs.append(tx_hash)
             # swap all the variables
             addresses = addresses[1:] + [addresses[0]]
+
+        # make sure we got pns for all
+        for i in range(len(addresses) * 2):
             await push_client.get()
             await push_client.get()
 
-        # get the nonce of the first transaction
-        async with self.pool.acquire() as con:
-            nonce = await con.fetchval("SELECT nonce FROM transactions WHERE hash = $1", txs[0])
-
-        # overwrite address 1's first tx
-        tx = await self.get_tx_skel(TEST_PRIVATE_KEY_1, FAUCET_ADDRESS, val, nonce=nonce)
-        tx = sign_transaction(tx, TEST_PRIVATE_KEY_1)
-        rpcclient = JsonRPCClient(parity.dsn()['url'])
-        await rpcclient.eth_sendRawTransaction(tx)
+        # start mining again
+        e2.start()
 
         await self.ensure_errors(*txs)
 
