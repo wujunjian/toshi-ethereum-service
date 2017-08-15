@@ -26,7 +26,7 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
     """
 
     def __init__(self, user_toshi_id, application, request_handler):
-        super().__init__(user_toshi_id, application)
+        super().__init__(user_toshi_id, application, request_handler.request)
         self.request_handler = request_handler
 
     async def subscribe(self, *addresses):

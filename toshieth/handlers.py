@@ -22,7 +22,7 @@ class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
     async def get(self, address):
 
         try:
-            result = await ToshiEthJsonRPC(None, self.application).get_balance(address)
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_balance(address)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 
@@ -48,7 +48,7 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
                 self.json['gas_price'] = self.json.pop('gasprice')
             if 'startgas' in self.json:
                 self.json['gas'] = self.json.pop('startgas')
-            result = await ToshiEthJsonRPC(None, self.application).create_transaction_skeleton(**self.json)
+            result = await ToshiEthJsonRPC(None, self.application, self.request).create_transaction_skeleton(**self.json)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
         except TypeError:
@@ -69,7 +69,7 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
             sender_toshi_id = None
 
         try:
-            result = await ToshiEthJsonRPC(sender_toshi_id, self.application).send_transaction(**self.json)
+            result = await ToshiEthJsonRPC(sender_toshi_id, self.application, self.request).send_transaction(**self.json)
         except JsonRPCInternalError as e:
             raise JSONHTTPError(500, body={'errors': [e.data]})
         except JsonRPCError as e:
@@ -88,7 +88,7 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
         format = self.get_query_argument('format', 'rpc').lower()
 
         try:
-            tx = await ToshiEthJsonRPC(None, self.application).get_transaction(tx_hash)
+            tx = await ToshiEthJsonRPC(None, self.application, self.request).get_transaction(tx_hash)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 

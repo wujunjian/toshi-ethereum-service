@@ -33,9 +33,10 @@ class JsonRPCInsufficientFundsError(JsonRPCError):
 
 class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, AnalyticsMixin, RedisMixin):
 
-    def __init__(self, user_toshi_id, application):
+    def __init__(self, user_toshi_id, application, request):
         self.user_toshi_id = user_toshi_id
         self.application = application
+        self.request = request
 
     @property
     def tasks(self):
