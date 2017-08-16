@@ -289,7 +289,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     "eth_address = $1",
                     to_address)
             self.track(sender_toshi_id, "Sent transaction")
-            self.track(receiver_toshi_id, "Received transaction")
+            # it doesn't make sense to add user agent here as we
+            # don't know the receiver's user agent
+            self.track(receiver_toshi_id, "Received transaction", add_user_agent=False)
 
         return tx_hash
 
