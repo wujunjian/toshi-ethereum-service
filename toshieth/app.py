@@ -41,6 +41,11 @@ class Application(toshi.web.Application):
         if 'ETHEREUM_NODE_URL' in os.environ:
             config['ethereum'] = {'url': os.environ['ETHEREUM_NODE_URL']}
 
+        if 'DEFAULT_GASPRICE' in os.environ:
+            if 'ethereum' not in config:
+                config['ethereum'] = {}
+            config['ethereum']['default_gasprice'] = os.environ['DEFAULT_GASPRICE']
+
         if 'ethereum' in config:
             if 'ETHEREUM_NETWORK_ID' in os.environ:
                 config['ethereum']['network_id'] = os.environ['ETHEREUM_NETWORK_ID']

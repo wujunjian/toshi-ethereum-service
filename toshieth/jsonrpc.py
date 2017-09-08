@@ -136,7 +136,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
 
         if gas_price is None:
-            gas_price = DEFAULT_GASPRICE
+            gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
         else:
             gas_price = parse_int(gas_price)
             if gas_price is None:
