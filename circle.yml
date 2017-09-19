@@ -40,3 +40,4 @@ deployment:
     branch: production
     commands:
       - git push -f git@heroku.com:token-eth-service.git $CIRCLE_SHA1:master
+      - git push -f git@heroku.com:toshi-eth-service.git $CIRCLE_SHA1:master
