@@ -14,6 +14,7 @@ class EthServiceTaskListener(TaskListener):
                          listener_id="ethservicetasklistener")
 
         self.callbacks = {}
+        self.filter_callbacks = {}
 
     def subscribe(self, eth_address, callback):
         """Registers a callback to receive transaction notifications for the
@@ -31,6 +32,16 @@ class EthServiceTaskListener(TaskListener):
             if not self.callbacks[eth_address]:
                 self.callbacks.pop(eth_address)
 
+    def filter(self, filter_id, callback):
+        callbacks = self.filter_callbacks.setdefault(filter_id, [])
+        if callback not in callbacks:
+            callbacks.append(callback)
+
+    def remove_filter(self, filter_id, callback):
+        if filter_id in self.filter_callbacks and callback in self.filter_callbacks[filter_id]:
+            self.filter_callbacks[filter_id].remove(callback)
+            if not self.filter_callbacks[filter_id]:
+                self.filter_callbacks.pop(filter_id)
 
 class TaskListenerApplication(ConfigurationManager):
 

@@ -121,7 +121,8 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 if nonce != transaction['nonce']:
                     # then this and all the following transactions are now invalid
                     previous_error = True
-                    log.info("Setting tx '{}' to error due to the nonce not matching the network".format(transaction['hash']))
+                    log.info("Setting tx '{}' to error due to the nonce ({}) not matching the network ({})".format(
+                        transaction['hash'], transaction['nonce'], nonce))
                     await self.update_transaction(transaction['transaction_id'], 'error')
                     addresses_to_check.add(transaction['to_address'])
                     continue
@@ -259,6 +260,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
         # no need to check to_address for contract deployments
         if tx['to_address'] == "0x":
+            # TODO: update any notification registrations to be marked as a contract
             return
 
         # check if this is a brand new tx with no status

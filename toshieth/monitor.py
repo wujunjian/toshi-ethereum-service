@@ -145,11 +145,25 @@ class BlockMonitor(TaskListenerApplication):
                     self._lastlog = time.time()
                     log.info("Processing block {}".format(block['number']))
 
-                # process block
                 for tx in block['transactions']:
 
                     # send notifications to sender and reciever
                     await self.process_transaction(tx)
+
+                # check if there are logs
+                if block['logsBloom'] != "0x" + ("0" * 512):
+                    # get them all
+                    logs = await self.eth.eth_getLogs(fromBlock=block['number'], toBlock=block['number'])
+                    # send notifications for anyone registered
+                    async with self.connection_pool.acquire() as con:
+                        for event in logs:
+                            for topic in event['topics']:
+                                filters = await con.fetch(
+                                    "SELECT * FROM filter_registrations WHERE contract_address = $1 AND topic_id = $2",
+                                    event['address'], topic)
+                                for filter in filters:
+                                    self.tasks.send_filter_notification(
+                                        filter['filter_id'], filter['topic'], event['data'])
 
                 self.last_block_number += 1
                 async with self.connection_pool.acquire() as con:

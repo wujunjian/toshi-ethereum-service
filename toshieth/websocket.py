@@ -2,6 +2,7 @@ import asyncio
 import os
 import uuid
 import time
+import traceback
 
 import tornado.ioloop
 import tornado.websocket
@@ -10,10 +11,12 @@ import tornado.web
 from datetime import datetime
 from toshi.database import DatabaseMixin
 from toshi.handlers import RequestVerificationMixin
-from toshi.utils import validate_address
+from toshi.utils import validate_address, validate_hex_string
 from toshi.tasks import TaskHandler
 from toshi.sofa import SofaPayment
 from toshi.utils import parse_int
+from toshi.ethereum.utils import encode_topic, decode_event_data
+from toshi.ethereum.mixin import EthereumMixin
 
 from toshi.log import log
 from toshi.jsonrpc.errors import JsonRPCInvalidParamsError
@@ -32,6 +35,7 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
     async def subscribe(self, *addresses):
         if not addresses:
             raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+
         for address in addresses:
             if not validate_address(address):
                 raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
@@ -56,6 +60,26 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
 
         return list(self.request_handler.subscription_ids)
 
+    async def filter(self, *, address=None, topic=None):
+        if address is not None:
+            if not validate_address(address):
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Invalid Adddress'})
+        if topic is not None:
+            try:
+                topic_id, topic = encode_topic(topic)
+            except ValueError:
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Invalid Topic'})
+
+        filter_id = await self.request_handler.filter(address, topic_id, topic)
+        return filter_id
+
+    async def remove_filters(self, *filter_ids):
+        for filter_id in filter_ids:
+            if not validate_hex_string("0x" + filter_id):
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+        await self.request_handler.remove_filters(filter_ids)
+        return True
+
     def get_timestamp(self):
         return int(time.time())
 
@@ -64,8 +88,6 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
         try:
             return (await self._list_payment_updates(address, start_time, end_time))
         except:
-            import traceback
-            traceback.print_exc()
             raise
 
     async def _list_payment_updates(self, address, start_time, end_time=None):
@@ -112,7 +134,7 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
 
         return payments
 
-class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, RequestVerificationMixin):
+class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, EthereumMixin, RequestVerificationMixin):
 
     KEEP_ALIVE_TIMEOUT = 30
 
@@ -121,6 +143,7 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
 
         self.user_toshi_id = self.verify_request()
         self.subscription_ids = set()
+        self.filter_ids = set()
         return super().get(*args, **kwargs)
 
     def open(self):
@@ -133,6 +156,7 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
         if hasattr(self, '_pingcb'):
             self.io_loop.remove_timeout(self._pingcb)
         self.io_loop.add_callback(self.unsubscribe, self.subscription_ids)
+        self.io_loop.add_callback(self.remove_filters, list(self.filter_ids))
 
     def schedule_ping(self):
         self._pingcb = self.io_loop.call_later(self.KEEP_ALIVE_TIMEOUT, self.send_ping)
@@ -182,12 +206,12 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
                 await self.db.execute(
                     "DELETE FROM notification_registrations WHERE toshi_id = $1 AND service = $2 AND registration_id = $3 AND eth_address = $4",
                     self.user_toshi_id, 'ws', self.session_id, address)
+            self.db.commit()
         for address in addresses:
             self.application.task_listener.unsubscribe(
                 address, self.send_transaction_notification)
 
     def send_transaction_notification(self, subscription_id, message):
-
         # make sure things are still connected
         if self.ws_connection is None:
             return
@@ -201,11 +225,69 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Reques
             }
         })
 
+    async def filter(self, contract_address, topic_id, topic):
+        new_filter_id = uuid.uuid4().hex
+        async with self.db:
+            filter_id = await self.db.fetchval(
+                "INSERT INTO filter_registrations (filter_id, registration_id, contract_address, topic_id, topic) "
+                "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (registration_id, contract_address, topic_id) "
+                "DO UPDATE SET registration_id = EXCLUDED.registration_id "
+                "RETURNING filter_id",
+                new_filter_id, self.session_id, contract_address, topic_id, topic)
+            if new_filter_id == filter_id:
+                await self.db.commit()
+                self.filter_ids.add(filter_id)
+        self.application.task_listener.filter(
+            filter_id, self.send_filter_notification)
+        return filter_id
+
+    async def remove_filters(self, filter_ids):
+        if not isinstance(filter_ids, list):
+            filter_ids = [filter_ids]
+        async with self.application.connection_pool.acquire() as con:
+            await con.execute(
+                "DELETE FROM filter_registrations WHERE filter_id = ANY($1) AND registration_id = $2",
+                filter_ids, self.session_id)
+
+        for filter_id in filter_ids:
+            self.application.task_listener.remove_filter(
+                filter_id, self.send_filter_notification)
+
+    def send_filter_notification(self, filter_id, topic, data):
+        # make sure things are still connected
+        if self.ws_connection is None:
+            return
+
+        args = decode_event_data(topic, data)
+
+        self.write_message({
+            "jsonrpc": "2.0",
+            "method": "filter",
+            "params": {
+                "filter_id": filter_id,
+                "topic": topic,
+                "arguments": args
+            }
+        })
+
 class WebsocketNotificationHandler(TaskHandler):
 
     async def send_notification(self, subscription_id, message):
         if subscription_id in self.application.callbacks:
             for callback in self.application.callbacks[subscription_id]:
-                f = callback(subscription_id, message)
-                if asyncio.iscoroutine(f):
-                    await f
+                try:
+                    f = callback(subscription_id, message)
+                    if asyncio.iscoroutine(f):
+                        await f
+                except:
+                    traceback.print_exc()
+
+    async def send_filter_notification(self, filter_id, topic, data):
+        if filter_id in self.application.filter_callbacks:
+            for callback in self.application.filter_callbacks[filter_id]:
+                try:
+                    f = callback(filter_id, topic, data)
+                    if asyncio.iscoroutine(f):
+                        await f
+                except:
+                    traceback.print_exc()

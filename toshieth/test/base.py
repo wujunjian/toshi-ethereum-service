@@ -10,6 +10,7 @@ from tornado.escape import json_decode
 
 from toshi.ethereum.utils import private_key_to_address, data_encoder
 from toshi.ethereum.tx import sign_transaction
+from toshi.ethereum.utils import prepare_ethereum_jsonrpc_client
 
 from toshi.test.database import requires_database
 from toshi.test.redis import requires_redis
@@ -50,7 +51,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
                             break
                 return body
 
-    async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None):
+    async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None, data=None):
         from_addr = private_key_to_address(from_key)
         body = {
             "from": from_addr,
@@ -63,6 +64,8 @@ class EthServiceBaseTest(AsyncHandlerTest):
             body['gasPrice'] = gas_price
         if gas is not None:
             body['gas'] = gas
+        if data is not None:
+            body['data'] = data
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
 
@@ -91,14 +94,22 @@ class EthServiceBaseTest(AsyncHandlerTest):
             return tx_hash
         return None
 
-    async def send_tx(self, from_key, to_addr, val, nonce=None):
+    async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None):
 
-        tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce)
+        tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price)
         return await self.sign_and_send_tx(from_key, tx)
 
     @property
     def network_id(self):
         return int(self._app.config['ethereum']['network_id'])
+
+    @property
+    def eth(self):
+        if 'ethereum' not in self._app.config:
+            raise Exception("Missing ethereum configuration")
+        if not hasattr(self, '_eth_jsonrpc_client'):
+            self._eth_jsonrpc_client = prepare_ethereum_jsonrpc_client(self._app.config['ethereum'])
+        return self._eth_jsonrpc_client
 
 def requires_block_monitor(func=None, cls=toshieth.monitor.BlockMonitor, pass_monitor=False, begin_started=True):
     """Used to ensure all database connections are returned to the pool

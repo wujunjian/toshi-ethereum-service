@@ -125,11 +125,12 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             data = b''
 
         if gas is None:
-            # if there is data the default startgas value wont be enough
-            if data:
+            try:
                 gas = await self.eth.eth_estimateGas(from_address, to_address, nonce=nonce, data=data)
-            else:
-                gas = DEFAULT_STARTGAS
+            except JsonRPCError:
+                # this can occur if sending a transaction to a contract that doesn't match a valid method
+                # and the contract has no default method implemented
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Invalid Data field'})
         else:
             gas = parse_int(gas)
             if gas is None:
