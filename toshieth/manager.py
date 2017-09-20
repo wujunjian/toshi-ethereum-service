@@ -232,7 +232,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
             if status == 'confirmed':
                 transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
-                if transaction and 'blocknumber' in transaction:
+                if transaction and 'blockNumber' in transaction:
                     blocknumber = parse_int(transaction['blockNumber'])
                     await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
                                           "WHERE transaction_id = $3",
