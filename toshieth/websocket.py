@@ -206,7 +206,7 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
                 await self.db.execute(
                     "DELETE FROM notification_registrations WHERE toshi_id = $1 AND service = $2 AND registration_id = $3 AND eth_address = $4",
                     self.user_toshi_id, 'ws', self.session_id, address)
-            self.db.commit()
+            await self.db.commit()
         for address in addresses:
             self.application.task_listener.unsubscribe(
                 address, self.send_transaction_notification)
