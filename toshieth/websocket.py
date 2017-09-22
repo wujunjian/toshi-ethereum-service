@@ -186,13 +186,13 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
         tornado.ioloop.IOLoop.current().add_callback(self._on_message, message)
 
     async def subscribe(self, addresses):
-        async with self.db:
+        async with self.db.acquire() as db:
             for address in addresses:
-                await self.db.execute(
+                await db.execute(
                     "INSERT INTO notification_registrations (toshi_id, service, registration_id, eth_address) "
                     "VALUES ($1, $2, $3, $4) ON CONFLICT (toshi_id, service, registration_id, eth_address) DO NOTHING",
                     self.user_toshi_id, 'ws', self.session_id, address)
-            await self.db.commit()
+            await db.commit()
 
         for address in addresses:
             self.application.task_listener.subscribe(
@@ -201,12 +201,12 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
 
     async def unsubscribe(self, addresses):
         self.subscription_ids.difference_update(addresses)
-        async with self.db:
+        async with self.db.acquire() as db:
             for address in addresses:
-                await self.db.execute(
+                await db.execute(
                     "DELETE FROM notification_registrations WHERE toshi_id = $1 AND service = $2 AND registration_id = $3 AND eth_address = $4",
                     self.user_toshi_id, 'ws', self.session_id, address)
-            await self.db.commit()
+            await db.commit()
         for address in addresses:
             self.application.task_listener.unsubscribe(
                 address, self.send_transaction_notification)
@@ -227,15 +227,15 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
 
     async def filter(self, contract_address, topic_id, topic):
         new_filter_id = uuid.uuid4().hex
-        async with self.db:
-            filter_id = await self.db.fetchval(
+        async with self.db.acquire() as db:
+            filter_id = await db.fetchval(
                 "INSERT INTO filter_registrations (filter_id, registration_id, contract_address, topic_id, topic) "
                 "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (registration_id, contract_address, topic_id) "
                 "DO UPDATE SET registration_id = EXCLUDED.registration_id "
                 "RETURNING filter_id",
                 new_filter_id, self.session_id, contract_address, topic_id, topic)
             if new_filter_id == filter_id:
-                await self.db.commit()
+                await db.commit()
                 self.filter_ids.add(filter_id)
         self.application.task_listener.filter(
             filter_id, self.send_filter_notification)
@@ -244,10 +244,11 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
     async def remove_filters(self, filter_ids):
         if not isinstance(filter_ids, list):
             filter_ids = [filter_ids]
-        async with self.application.connection_pool.acquire() as con:
-            await con.execute(
+        async with self.db.acquire() as db:
+            await db.execute(
                 "DELETE FROM filter_registrations WHERE filter_id = ANY($1) AND registration_id = $2",
                 filter_ids, self.session_id)
+            await db.commit()
 
         for filter_id in filter_ids:
             self.application.task_listener.remove_filter(
