@@ -614,6 +614,9 @@ class TransactionTest(EthServiceBaseTest):
         resp = await self.fetch("/tx", method="POST", body={"tx": stx2})
         self.assertEqual(resp.code, 200, resp.body)
 
+        # lets the transaction queue processing run before ending the test
+        await asyncio.sleep(0.1)
+
     @gen_test(timeout=30)
     @requires_database
     @requires_redis

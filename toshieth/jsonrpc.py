@@ -126,7 +126,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         if gas is None:
             try:
-                gas = await self.eth.eth_estimateGas(from_address, to_address, nonce=nonce, data=data)
+                gas = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=value)
             except JsonRPCError:
                 # this can occur if sending a transaction to a contract that doesn't match a valid method
                 # and the contract has no default method implemented

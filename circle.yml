@@ -17,8 +17,8 @@ dependencies:
     - sudo apt-get update
     - sudo apt-get install -y ethereum ethminer solc
     - if [[ ! -d ~/.ethash ]]; then ethminer -D 0; fi
-    - wget http://parity-downloads-mirror.parity.io/v1.7.0/x86_64-unknown-linux-gnu/parity_1.7.0_amd64.deb
-    - sudo dpkg -i parity_1.7.0_amd64.deb
+    - wget http://parity-downloads-mirror.parity.io/v1.7.2/x86_64-unknown-linux-gnu/parity_1.7.2_amd64.deb
+    - sudo dpkg -i parity_1.7.2_amd64.deb
     - pip install -r requirements-testing.txt
     - ./configure_environment.sh
     - pip install --upgrade -r requirements.txt
