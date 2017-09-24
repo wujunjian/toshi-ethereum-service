@@ -1,5 +1,6 @@
 import asyncio
 import warnings
+import re
 
 from tornado.escape import json_decode
 from tornado.testing import gen_test
@@ -275,6 +276,35 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
 
             if message['status'] == "confirmed":
                 break
+
+class MonitorTest(FaucetMixin, EthServiceBaseTest):
+
+    @gen_test(timeout=45)
+    @requires_full_stack
+    async def test_external_transactions(self):
+
+        val = 761751855997712
+
+        body = {
+            "registration_id": TEST_GCM_ID,
+            "address": TEST_ID_ADDRESS
+        }
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+
+        tx_hash = await self.faucet(TEST_ID_ADDRESS, val)
+
+        while True:
+            async with self.pool.acquire() as con:
+                row = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1", tx_hash)
+            if row is not None:
+                break
+            await asyncio.sleep(0.1)
+
+        # make sure value is stored as hex
+        self.assertIsNotNone(re.match('^0x[a-fA-F0-9]+$', row['value']), "expected transaction value to be stored as hex. got: {}".format(row['value']))
+        self.assertEqual(int(row['value'][2:], 16), val)
+
 
 class MonitorErrorsTest(FaucetMixin, EthServiceBaseTest):
 

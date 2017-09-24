@@ -344,7 +344,7 @@ class BlockMonitor(TaskListenerApplication):
                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
                     "RETURNING transaction_id",
                     transaction['hash'], from_address, to_address, parse_int(transaction['nonce']),
-                    str(parse_int(transaction['value'])), str(parse_int(transaction['gas'])), str(parse_int(transaction['gasPrice'])),
+                    hex(parse_int(transaction['value'])), hex(parse_int(transaction['gas'])), hex(parse_int(transaction['gasPrice'])),
                     transaction['input'])
                 self.tasks.update_transaction(
                     db_tx['transaction_id'],
