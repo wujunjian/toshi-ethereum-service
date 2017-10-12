@@ -654,3 +654,25 @@ class TransactionTest(EthServiceBaseTest):
 
         # ensure we get a tracking events
         self.assertEqual((await self.next_tracking_event())[0], None)
+
+    @gen_test(timeout=15)
+    @requires_full_stack
+    async def test_insufficient_funds(self):
+
+        body = {
+            "to": FAUCET_ADDRESS,
+            "from": TEST_ADDRESS,
+            "value": 10 ** 18
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+        self.assertEqual(resp.code, 200)
+        body = json_decode(resp.body)
+        tx = sign_transaction(body['tx'], TEST_PRIVATE_KEY)
+        resp = await self.fetch("/tx", method="POST", body={
+            "tx": tx
+        })
+        self.assertEqual(resp.code, 400, resp.body)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['errors']), 1)
+        self.assertEqual(body['errors'][0]['id'], 'insufficient_funds')
