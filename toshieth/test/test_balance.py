@@ -70,14 +70,14 @@ class BalanceTest(FaucetMixin, AsyncHandlerTest):
 
         async with self.pool.acquire() as con:
             await con.execute(
-                "INSERT INTO transactions VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                tx1_hash, FAUCET_ADDRESS, addr, 0, val, DEFAULT_STARTGAS, DEFAULT_GASPRICE, DEFAULT_STARTGAS * DEFAULT_GASPRICE)
+                "INSERT INTO transactions (hash, from_address, to_address, nonce, value, gas, gas_price) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                tx1_hash, FAUCET_ADDRESS, addr, 0, val, DEFAULT_STARTGAS, DEFAULT_GASPRICE)
             await con.execute(
-                "INSERT INTO transactions (hash, from_address, to_address, nonce, value, gas, gas_price, "
-                "estimated_gas_cost, status) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                "INSERT INTO transactions (hash, from_address, to_address, nonce, value, gas, gas_price, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 tx2_hash, FAUCET_ADDRESS, addr, 1, val,
-                DEFAULT_STARTGAS, DEFAULT_GASPRICE, DEFAULT_STARTGAS * DEFAULT_GASPRICE,
+                DEFAULT_STARTGAS, DEFAULT_GASPRICE,
                 'unconfirmed')
 
         resp = await self.fetch('/balance/{}'.format(addr))
@@ -188,7 +188,7 @@ class SimpleHandler(BalanceMixin, EthereumMixin, DatabaseMixin, BaseHandler):
             "unconfirmed_balance": hex(unconfirmed)
         })
 
-class BalanceTest(FaucetMixin, AsyncHandlerTest):
+class BalanceTest2(FaucetMixin, AsyncHandlerTest):
 
     def get_urls(self):
         return [('/(.+)', SimpleHandler)]
