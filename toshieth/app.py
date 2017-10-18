@@ -27,6 +27,9 @@ urls = [
     (r"^/v1/register/?$", handlers.LegacyRegistrationHandler),
     (r"^/v1/deregister/?$", handlers.LegacyDeregistrationHandler),
 
+    # (essentially) static file access
+    (r"^/tokens/?$", handlers.TokenHandler),
+    (r"^/token/(?P<symbol_png>.+\.png)$", handlers.TokenHandler),
 ]
 
 class Application(toshi.web.Application):

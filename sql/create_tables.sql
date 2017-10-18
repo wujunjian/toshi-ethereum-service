@@ -55,6 +55,16 @@ CREATE TABLE IF NOT EXISTS last_blocknumber (
     blocknumber INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS tokens (
+    address VARCHAR UNIQUE, -- contract address
+    symbol VARCHAR PRIMARY KEY, -- currency symbol
+    name VARCHAR, -- verbose name
+    decimals INTEGER, -- currency decimal points
+    icon BYTEA, -- png data
+    hash VARCHAR,
+    last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_hash ON transactions (hash);
 CREATE INDEX IF NOT EXISTS idx_transactions_hash_by_id_sorted ON transactions (hash, transaction_id DESC);
 
@@ -67,4 +77,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notific
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_contract_address_topic ON filter_registrations (contract_address, topic_id);
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON filter_registrations (filter_id, registration_id);
 
-UPDATE database_version SET version_number = 7;
+CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
+
+UPDATE database_version SET version_number = 8;

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from toshi.handlers import BaseHandler
 from toshi.errors import JSONHTTPError
 from toshi.jsonrpc.errors import JsonRPCInternalError
@@ -8,7 +9,7 @@ from toshi.redis import RedisMixin
 from toshi.analytics import AnalyticsMixin
 
 from toshi.sofa import SofaPayment
-from toshi.handlers import RequestVerificationMixin
+from toshi.handlers import RequestVerificationMixin, SimpleFileHandler
 from toshi.utils import validate_address
 from toshi.log import log, log_headers_on_error
 
@@ -16,6 +17,47 @@ from .mixins import BalanceMixin
 from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json
+
+
+class TokenHandler(DatabaseMixin, SimpleFileHandler):
+
+    async def get(self, symbol_png=None):
+
+        if symbol_png:
+            # remove .png suffix required by URL regex
+            symbol = symbol_png[:-4]
+
+            async with self.db:
+                row = await self.db.fetchrow(
+                    "SELECT * FROM tokens WHERE symbol = $1",
+                    symbol
+                )
+
+            if row is None:
+                raise HTTPError(404)
+
+            await self.handle_file_response(
+                data=row['icon'],
+                content_type="image/png",
+                etag=row['hash'],
+                last_modified=row['last_modified']
+            )
+
+        else:
+            # list available tokens
+            async with self.db:
+                rows = await self.db.fetch(
+                    "SELECT symbol, name, decimals FROM tokens "
+                    "ORDER BY symbol ASC"
+                )
+
+            tokens = [dict(symbol=r['symbol'],
+                           name=r['name'],
+                           decimals=r['decimals'],
+                           icon_url="/token/{}.png".format(r['symbol']))
+                      for r in rows]
+            self.write({"tokens": tokens})
+
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
