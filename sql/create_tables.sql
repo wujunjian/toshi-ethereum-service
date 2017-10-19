@@ -65,6 +65,22 @@ CREATE TABLE IF NOT EXISTS tokens (
     last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
+CREATE TABLE IF NOT EXISTS erc20_transactions (
+    transaction_id BIGSERIAL PRIMARY KEY,
+    symbol VARCHAR NOT NULL,
+    from_address VARCHAR NOT NULL,
+    to_address VARCHAR NOT NULL,
+    value VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS erc20_balances (
+    symbol VARCHAR,
+    address VARCHAR,
+    value VARCHAR NOT NULL,
+
+    PRIMARY KEY(symbol, address)
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_hash ON transactions (hash);
 CREATE INDEX IF NOT EXISTS idx_transactions_hash_by_id_sorted ON transactions (hash, transaction_id DESC);
 
@@ -79,4 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON
 
 CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
 
-UPDATE database_version SET version_number = 8;
+CREATE INDEX IF NOT EXISTS idx_erc20_balances_address ON erc20_balances (address);
+CREATE INDEX IF NOT EXISTS idx_erc20_balances_address_symbol ON erc20_balances (address, symbol ASC);
+
+UPDATE database_version SET version_number = 9;

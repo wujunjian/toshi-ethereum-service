@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from tornado.platform.asyncio import to_asyncio_future
+
 from toshi.database import DatabaseMixin
 from toshi.redis import RedisMixin
 from toshieth.mixins import BalanceMixin
@@ -222,6 +224,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             tx = await self.db.fetchrow("SELECT * FROM transactions WHERE transaction_id = $1", transaction_id)
             if tx is None or tx['status'] == status:
                 return
+            erc20_tx = await self.db.fetchrow("SELECT * FROM erc20_transactions WHERE transaction_id = $1", transaction_id)
 
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
             if tx['status'] == 'confirmed':
@@ -253,8 +256,24 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # there's already been a tx for this so no need to send another
             return
 
-        payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
-                              fromAddress=tx['from_address'], toAddress=tx['to_address'],
+        # check if this is an erc20 transaction, if so use those values
+        if erc20_tx:
+            currency = erc20_tx['symbol']
+            from_address = erc20_tx['from_address']
+            to_address = erc20_tx['to_address']
+            value = parse_int(erc20_tx['value'])
+            if status == 'confirmed':
+                self.tasks.update_erc20_cache(currency,
+                                              from_address,
+                                              to_address)
+        else:
+            currency = "ETH"
+            from_address = tx['from_address']
+            to_address = tx['to_address']
+            value = parse_int(tx['value'])
+
+        payment = SofaPayment(currency=currency, value=value, txHash=tx['hash'], status=status,
+                              fromAddress=from_address, toAddress=to_address,
                               networkId=self.application.config['ethereum']['network_id'])
         message = payment.render()
 
@@ -263,7 +282,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         self.tasks.send_notification(tx['from_address'], message)
 
         # no need to check to_address for contract deployments
-        if tx['to_address'] == "0x":
+        if to_address == "0x":
             # TODO: update any notification registrations to be marked as a contract
             return
 
@@ -273,13 +292,55 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # we only need to send the error to the sender, thus we
             # only add 'to' if the new status is not an error
             if status != 'error':
-                self.tasks.send_notification(tx['to_address'], message)
+                self.tasks.send_notification(to_address, message)
         else:
-            self.tasks.send_notification(tx['to_address'], message)
+            self.tasks.send_notification(to_address, message)
 
         # trigger a processing of the to_address's queue incase it has
         # things waiting on this transaction
-        self.tasks.process_transaction_queue(tx['to_address'])
+        self.tasks.process_transaction_queue(to_address)
+
+    async def update_erc20_cache(self, symbol, *addresses):
+
+        if len(addresses) == 0:
+            return
+
+        async with self.db:
+            if symbol == "*":
+                tokens = await self.db.fetch("SELECT * FROM tokens")
+            else:
+                token = await self.db.fetchrow("SELECT * FROM tokens WHERE symbol = $1", symbol)
+                tokens = [token]
+
+        futures = []
+        for token in tokens:
+            for address in addresses:
+                # data for `balanceOf(address)`
+                data = "0x70a08231000000000000000000000000" + address[2:]
+                f = to_asyncio_future(self.eth.eth_call(to_address=token['address'], data=data))
+                futures.append((token['symbol'], address, f))
+
+        # wait for all the jsonrpc calls to finish
+        await asyncio.gather(*[f[2] for f in futures], return_exceptions=True)
+        bulk_update = []
+        bulk_delete = []
+        for symbol, address, f in futures:
+            try:
+                value = f.result()
+                if value == "0x0000000000000000000000000000000000000000000000000000000000000000":
+                    bulk_delete.append((symbol, address))
+                else:
+                    bulk_update.append((symbol, address, value))
+            except:
+                log.exception("WARNING: failed to update erc20 cache of '{}' for address: {}".format(symbol, address))
+                continue
+        async with self.db:
+            await self.db.executemany("INSERT INTO erc20_balances (symbol, address, value) VALUES ($1, $2, $3) "
+                                      "ON CONFLICT (symbol, address) DO UPDATE set value = EXCLUDED.value",
+                                      bulk_update)
+            await self.db.executemany("DELETE FROM erc20_balances WHERE symbol = $1 AND address = $2",
+                                      bulk_delete)
+            await self.db.commit()
 
     async def sanity_check(self, frequency):
         async with self.db:

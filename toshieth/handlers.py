@@ -7,6 +7,7 @@ from toshi.ethereum.mixin import EthereumMixin
 from toshi.jsonrpc.errors import JsonRPCError
 from toshi.redis import RedisMixin
 from toshi.analytics import AnalyticsMixin
+from toshi.tasks import TaskDispatcher
 
 from toshi.sofa import SofaPayment
 from toshi.handlers import RequestVerificationMixin, SimpleFileHandler
@@ -143,13 +144,17 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
                 row = await self.db.fetchrow(
                     "SELECT * FROM transactions where hash = $1 ORDER BY transaction_id DESC",
                     tx_hash)
+                if row is not None:
+                    erc20 = await self.db.fetchrow(
+                        "SELECT * FROM erc20_transactions where transaction_id = $1",
+                        row['transaction_id'])
             if row is None:
                 raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
             if tx is None:
                 tx = transaction_to_json(database_transaction_to_rlp_transaction(row))
             if row['status'] == 'error':
                 tx['error'] = True
-            payment = SofaPayment.from_transaction(tx, networkId=self.application.config['ethereum']['network_id'])
+            payment = SofaPayment.from_transaction(tx, erc20=erc20, networkId=self.application.config['ethereum']['network_id'])
             message = payment.render()
             self.set_header('Content-Type', 'text/plain')
             self.write(message.encode('utf-8'))
@@ -218,6 +223,8 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
                         "WHERE toshi_id = $1 AND eth_address = $1 AND service = 'apn'", eth_address)
 
                 await self.db.commit()
+
+        TaskDispatcher(self.application.task_listener).update_erc20_cache("*", eth_address)
 
         self.set_status(204)
 
