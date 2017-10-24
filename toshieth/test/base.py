@@ -24,7 +24,8 @@ class EthServiceBaseTest(AsyncHandlerTest):
         return urls
 
     def get_url(self, path):
-        path = "/v1{}".format(path)
+        if not path.startswith("/static"):
+            path = "/v1{}".format(path)
         return super().get_url(path)
 
     def setUp(self):

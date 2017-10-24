@@ -336,7 +336,7 @@ class BlockMonitor(TaskListenerApplication):
                ((transaction['input'].startswith("0xa9059cbb") and len(transaction['input']) == 138) or \
                 (transaction['input'].startswith("0x23b872dd") and len(transaction['input']) == 202)):
                 # check if the token is a known erc20 token
-                erc20_token = await con.fetchrow("SELECT * FROM tokens WHERE address = $1",
+                erc20_token = await con.fetchrow("SELECT * FROM erc20_tokens WHERE address = $1",
                                                  to_address)
                 if erc20_token:
 
@@ -389,9 +389,9 @@ class BlockMonitor(TaskListenerApplication):
                     token_value = int(transaction['input'][-64:], 16)
                     await con.execute(
                         "INSERT INTO erc20_transactions "
-                        "(transaction_id, symbol, from_address, to_address, value) "
+                        "(transaction_id, erc20_address, from_address, to_address, value) "
                         "VALUES ($1, $2, $3, $4, $5)",
-                        db_tx['transaction_id'], erc20_token['symbol'],
+                        db_tx['transaction_id'], erc20_token['address'],
                         interested_from_address, interested_to_address, token_value)
 
                 self.tasks.update_transaction(

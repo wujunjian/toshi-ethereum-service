@@ -1,8 +1,15 @@
+# -*- coding: utf-8 -*-
 import asyncio
 import os
+import blockies
+import hashlib
 
-from tornado.testing import gen_test
 from tornado.escape import json_decode
+from tornado.testing import gen_test
+
+from toshieth.app import urls
+from toshi.test.database import requires_database
+from toshi.test.base import AsyncHandlerTest
 
 from toshi.test.base import ToshiWebSocketJsonRPCClient
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
@@ -13,6 +20,9 @@ from toshi.sofa import parse_sofa_message
 from ethereum.utils import sha3
 
 from toshi.ethereum.contract import Contract
+
+ABC_TOKEN_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
+YAC_TOKEN_ADDRESS = "0x9ab6c6111577c51da46e2c4c93a3622671578657"
 
 ERC20_CONTRACT = """
 pragma solidity ^0.4.8;
@@ -94,7 +104,7 @@ class ERC20Test(EthServiceBaseTest):
         contract = await Contract.from_source_code(sourcecode, contract_name, constructor_data=constructor_data, deployer_private_key=FAUCET_PRIVATE_KEY)
 
         async with self.pool.acquire() as con:
-            await con.execute("INSERT INTO tokens (address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+            await con.execute("INSERT INTO erc20_tokens (address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
                               contract.address, symbol, name, decimals)
 
         return contract
@@ -109,27 +119,30 @@ class ERC20Test(EthServiceBaseTest):
         """
 
         os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
-        tokens = {
-            "TST": ["Test Token", 18],
-            "BOB": ["Big Old Bucks", 10],
-            "HMM": ["Hmmmmmm", 5],
-            "NOT": ["Not This One", 20]
-        }
+        token_args = [
+            ["TST", "Test Token", 18],
+            ["BOB", "Big Old Bucks", 10],
+            ["HMM", "Hmmmmmm", 5],
+            ["NOT", "Not This One", 20]
+        ]
+        tokens = {}
         contracts = {}
 
-        for symbol in tokens:
-            contract = await self.deploy_erc20_contract(symbol, *tokens[symbol])
-            contracts[symbol] = contract
+        for args in token_args:
+            contract = await self.deploy_erc20_contract(*args)
+            contracts[contract.address] = contract
+            tokens[contract.address] = {"symbol": args[0], "name": args[1], "decimals": args[2], "contract": contract}
+            args.append(contract.address)
 
-        for symbol in tokens:
-            if symbol == "NOT":
+        for token in tokens.values():
+            if token['symbol'] == token_args[-1][0]:
                 continue
             # give "1" of each token (except NOT)
-            contract = contracts[symbol]
-            await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** tokens[symbol][1])
+            contract = token['contract']
+            await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'])
 
             result = await contract.balanceOf(TEST_ADDRESS)
-            self.assertEquals(result, 10 ** tokens[symbol][1])
+            self.assertEquals(result, 10 ** token['decimals'])
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -139,18 +152,17 @@ class ERC20Test(EthServiceBaseTest):
         })
         self.assertEqual(resp.code, 204)
 
-        # wait for task to process user's tokens
+        # get user's initial token balance
         await asyncio.sleep(0.1)
 
-        async with self.pool.acquire() as con:
-            balances = await con.fetch("SELECT * FROM erc20_balances WHERE address = $1",
-                                       TEST_ADDRESS)
+        resp = await self.fetch("/erc20/balance/{}".format(TEST_ADDRESS))
 
-        self.assertEqual(len(balances), len(tokens) - 1)
-        for balance in balances:
-            self.assertTrue(balance['symbol'] in tokens)
-            token = tokens[balance['symbol']]
-            self.assertEqual(int(balance['value'], 16), 10 ** token[1])
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), len(token_args) - 1)
+
+        for balance in body['tokens']:
+            self.assertEqual(int(balance['value'], 16), 10 ** tokens[balance['address']]['decimals'])
 
         await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS, 10 ** 18)
 
@@ -162,19 +174,59 @@ class ERC20Test(EthServiceBaseTest):
         await push_client.get()
 
         # test that receiving new tokens triggers a PN
-        for symbol in tokens:
-            token = tokens[symbol]
-            await contracts[symbol].transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token[1], wait_for_confirmation=False)
+        for token in tokens.values():
+            contract = token['contract']
+            await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'], wait_for_confirmation=False)
             while True:
                 pn = await push_client.get()
                 sofa = parse_sofa_message(pn[1]['message'])
                 if sofa['status'] == 'confirmed':
                     break
-            self.assertEqual(sofa['currency'], symbol)
-            self.assertEqual(sofa['value'], hex(10 ** token[1]))
+            self.assertEqual(sofa['currency'], token['symbol'])
+            self.assertEqual(sofa['value'], hex(10 ** token['decimals']))
             await asyncio.sleep(0.1)
             async with self.pool.acquire() as con:
-                balance = await con.fetchrow("SELECT * FROM erc20_balances WHERE address = $1 AND symbol = $2",
-                                             TEST_ADDRESS, symbol)
-            self.assertEqual(int(balance['value'], 16), (10 ** token[1]) * (2 if symbol != "NOT" else 1),
-                             "invalid balance after updating {} token".format(symbol))
+                balance = await con.fetchrow("SELECT * FROM erc20_balances WHERE eth_address = $1 AND erc20_address = $2",
+                                             TEST_ADDRESS, contract.address)
+            self.assertEqual(int(balance['value'], 16), (10 ** token['decimals']) * (2 if token['symbol'] != token_args[-1][0] else 1),
+                             "invalid balance after updating {} token".format(token['symbol']))
+
+    @gen_test
+    @requires_database
+    async def test_list_erc20_tokens(self):
+        image = blockies.create(ABC_TOKEN_ADDRESS, size=8, scale=12)
+        hasher = hashlib.md5()
+        hasher.update(image)
+        hash = hasher.hexdigest()
+
+        async with self.pool.acquire() as con:
+            await con.execute(
+                "INSERT INTO erc20_tokens "
+                "(address, symbol, name, decimals, icon, hash) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                ABC_TOKEN_ADDRESS, "ABC", "Awesome Balls Currency Token", 18, image, hash
+            )
+            await con.execute(
+                "INSERT INTO erc20_tokens "
+                "(address, symbol, name, decimals, icon, hash) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                YAC_TOKEN_ADDRESS, "YAC", "Yet Another Currency Token", 2, image, hash
+            )
+
+        resp = await self.fetch(
+            "/erc20/tokens", method="GET"
+        )
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        for token in body['tokens']:
+            icon_url = token['icon_url']
+            resp = await self.fetch(
+                icon_url, method="GET"
+            )
+            self.assertResponseCodeEqual(resp, 200)
+            self.assertEqual(resp.headers.get('Content-Type'),
+                             'image/png')
+            self.assertEqual(resp.body, image)

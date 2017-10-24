@@ -1,3 +1,4 @@
+import asyncio
 import binascii
 from toshi.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
 from toshi.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
@@ -22,7 +23,7 @@ from toshi.ethereum.tx import (
 from toshi.log import log
 
 from .mixins import BalanceMixin
-from .utils import RedisLock, database_transaction_to_rlp_transaction
+from .utils import RedisLock, RedisLockException, database_transaction_to_rlp_transaction
 
 class JsonRPCInsufficientFundsError(JsonRPCError):
     def __init__(self, *, request=None, data=None):
@@ -59,6 +60,41 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             "confirmed_balance": hex(confirmed),
             "unconfirmed_balance": hex(unconfirmed)
         }
+
+    async def get_erc20_balance(self, address):
+
+        if not validate_address(address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+
+        while True:
+            async with self.db:
+                result = await self.db.execute("UPDATE erc20_registrations SET last_queried = (now() AT TIME ZONE 'utc') WHERE eth_address = $1", address)
+                await self.db.commit()
+            registered = result == "UPDATE 1"
+
+            if not registered:
+                try:
+                    with RedisLock(self.redis, "erc20_balance_update:{}".format(address)):
+                        try:
+                            await self.tasks.update_erc20_cache("*", address)
+                        except Exception as e:
+                            print(e)
+                            raise
+                        async with self.db:
+                            await self.db.execute("INSERT INTO erc20_registrations (eth_address) VALUES ($1)", address)
+                            await self.db.commit()
+                    break
+                except RedisLockException:
+                    # wait until the previous task is done and try again
+                    await asyncio.sleep(0.1)
+                    continue
+            else:
+                break
+
+        async with self.db:
+            balances = await self.db.fetch("SELECT * FROM erc20_balances WHERE eth_address = $1 ORDER BY value DESC", address)
+
+        return {"tokens": [{"address": b['erc20_address'], "value": b['value']} for b in balances]}
 
     async def get_transaction_count(self, address):
 

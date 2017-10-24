@@ -18,47 +18,59 @@ from .mixins import BalanceMixin
 from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json
+from tornado.web import HTTPError
 
 
-class TokenHandler(DatabaseMixin, SimpleFileHandler):
+class ERC20TokenIconHandler(DatabaseMixin, SimpleFileHandler):
 
-    async def get(self, symbol_png=None):
+    async def get(self, address):
 
-        if symbol_png:
-            # remove .png suffix required by URL regex
-            symbol = symbol_png[:-4]
-
-            async with self.db:
-                row = await self.db.fetchrow(
-                    "SELECT * FROM tokens WHERE symbol = $1",
-                    symbol
-                )
-
-            if row is None:
-                raise HTTPError(404)
-
-            await self.handle_file_response(
-                data=row['icon'],
-                content_type="image/png",
-                etag=row['hash'],
-                last_modified=row['last_modified']
+        async with self.db:
+            row = await self.db.fetchrow(
+                "SELECT * FROM erc20_tokens WHERE address = $1 or symbol = $1",
+                address
             )
 
-        else:
-            # list available tokens
-            async with self.db:
-                rows = await self.db.fetch(
-                    "SELECT symbol, name, decimals FROM tokens "
-                    "ORDER BY symbol ASC"
-                )
+        if row is None:
+            raise HTTPError(404)
 
-            tokens = [dict(symbol=r['symbol'],
-                           name=r['name'],
-                           decimals=r['decimals'],
-                           icon_url="/token/{}.png".format(r['symbol']))
-                      for r in rows]
-            self.write({"tokens": tokens})
+        await self.handle_file_response(
+            data=row['icon'],
+            content_type="image/png",
+            etag=row['hash'],
+            last_modified=row['last_modified']
+        )
 
+class ERC20ListTokensHandler(DatabaseMixin, BaseHandler):
+
+    async def get(self):
+
+        # list available tokens
+        async with self.db:
+            rows = await self.db.fetch(
+                "SELECT address, symbol, name, decimals FROM erc20_tokens "
+                "ORDER BY symbol ASC"
+            )
+
+        tokens = [{'address': r['address'],
+                   'symbol': r['symbol'],
+                   'name': r['name'],
+                   'decimals': r['decimals'],
+                   'icon_url': "/static/icon/{}.png".format(r['address'])}
+                  for r in rows]
+
+        self.write({"tokens": tokens})
+
+class ERC20BalanceHandler(BaseHandler):
+
+    async def get(self, address):
+
+        try:
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_erc20_balance(address)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        self.write(result)
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
@@ -223,8 +235,6 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
                         "WHERE toshi_id = $1 AND eth_address = $1 AND service = 'apn'", eth_address)
 
                 await self.db.commit()
-
-        TaskDispatcher(self.application.task_listener).update_erc20_cache("*", eth_address)
 
         self.set_status(204)
 

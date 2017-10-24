@@ -224,8 +224,8 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             tx = await self.db.fetchrow("SELECT * FROM transactions WHERE transaction_id = $1", transaction_id)
             if tx is None or tx['status'] == status:
                 return
-            erc20_tx = await self.db.fetchrow("SELECT * FROM erc20_transactions WHERE transaction_id = $1", transaction_id)
-
+            erc20_tx = await self.db.fetchrow("SELECT * FROM erc20_transactions tx JOIN erc20_tokens tok "
+                                              "ON tok.address = tx.erc20_address WHERE tx.transaction_id = $1", transaction_id)
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
             if tx['status'] == 'confirmed':
                 log.warning("Trying to update status of tx {} to error, but tx is already confirmed".format(tx['hash']))
@@ -263,7 +263,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             to_address = erc20_tx['to_address']
             value = parse_int(erc20_tx['value'])
             if status == 'confirmed':
-                self.tasks.update_erc20_cache(currency,
+                self.tasks.update_erc20_cache(erc20_tx['address'],
                                               from_address,
                                               to_address)
         else:
@@ -300,45 +300,45 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         # things waiting on this transaction
         self.tasks.process_transaction_queue(to_address)
 
-    async def update_erc20_cache(self, symbol, *addresses):
+    async def update_erc20_cache(self, erc20_address, *eth_addresses):
 
-        if len(addresses) == 0:
+        if len(eth_addresses) == 0:
             return
 
         async with self.db:
-            if symbol == "*":
-                tokens = await self.db.fetch("SELECT * FROM tokens")
+            if erc20_address == "*":
+                tokens = await self.db.fetch("SELECT * FROM erc20_tokens")
             else:
-                token = await self.db.fetchrow("SELECT * FROM tokens WHERE symbol = $1", symbol)
+                token = await self.db.fetchrow("SELECT * FROM erc20_tokens WHERE address = $1", erc20_address)
                 tokens = [token]
 
         futures = []
         for token in tokens:
-            for address in addresses:
+            for address in eth_addresses:
                 # data for `balanceOf(address)`
                 data = "0x70a08231000000000000000000000000" + address[2:]
                 f = to_asyncio_future(self.eth.eth_call(to_address=token['address'], data=data))
-                futures.append((token['symbol'], address, f))
+                futures.append((token['address'], address, f))
 
         # wait for all the jsonrpc calls to finish
         await asyncio.gather(*[f[2] for f in futures], return_exceptions=True)
         bulk_update = []
         bulk_delete = []
-        for symbol, address, f in futures:
+        for erc20_address, eth_address, f in futures:
             try:
                 value = f.result()
                 if value == "0x0000000000000000000000000000000000000000000000000000000000000000":
-                    bulk_delete.append((symbol, address))
+                    bulk_delete.append((erc20_address, eth_address))
                 else:
-                    bulk_update.append((symbol, address, value))
+                    bulk_update.append((erc20_address, eth_address, value))
             except:
-                log.exception("WARNING: failed to update erc20 cache of '{}' for address: {}".format(symbol, address))
+                log.exception("WARNING: failed to update erc20 cache of '{}' for address: {}".format(erc20_address, eth_address))
                 continue
         async with self.db:
-            await self.db.executemany("INSERT INTO erc20_balances (symbol, address, value) VALUES ($1, $2, $3) "
-                                      "ON CONFLICT (symbol, address) DO UPDATE set value = EXCLUDED.value",
+            await self.db.executemany("INSERT INTO erc20_balances (erc20_address, eth_address, value) VALUES ($1, $2, $3) "
+                                      "ON CONFLICT (erc20_address, eth_address) DO UPDATE set value = EXCLUDED.value",
                                       bulk_update)
-            await self.db.executemany("DELETE FROM erc20_balances WHERE symbol = $1 AND address = $2",
+            await self.db.executemany("DELETE FROM erc20_balances WHERE erc20_address = $1 AND eth_address = $2",
                                       bulk_delete)
             await self.db.commit()
 

@@ -55,9 +55,9 @@ CREATE TABLE IF NOT EXISTS last_blocknumber (
     blocknumber INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS tokens (
-    address VARCHAR UNIQUE, -- contract address
-    symbol VARCHAR PRIMARY KEY, -- currency symbol
+CREATE TABLE IF NOT EXISTS erc20_tokens (
+    address VARCHAR PRIMARY KEY, -- contract address
+    symbol VARCHAR, -- currency symbol
     name VARCHAR, -- verbose name
     decimals INTEGER, -- currency decimal points
     icon BYTEA, -- png data
@@ -67,18 +67,23 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 CREATE TABLE IF NOT EXISTS erc20_transactions (
     transaction_id BIGSERIAL PRIMARY KEY,
-    symbol VARCHAR NOT NULL,
+    erc20_address VARCHAR NOT NULL,
     from_address VARCHAR NOT NULL,
     to_address VARCHAR NOT NULL,
     value VARCHAR NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS erc20_balances (
-    symbol VARCHAR,
-    address VARCHAR,
+    erc20_address VARCHAR,
+    eth_address VARCHAR,
     value VARCHAR NOT NULL,
 
-    PRIMARY KEY(symbol, address)
+    PRIMARY KEY(erc20_address, eth_address)
+);
+
+CREATE TABLE IF NOT EXISTS erc20_registrations (
+    eth_address VARCHAR PRIMARY KEY,
+    last_queried TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_hash ON transactions (hash);
@@ -93,9 +98,11 @@ CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notific
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_contract_address_topic ON filter_registrations (contract_address, topic_id);
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON filter_registrations (filter_id, registration_id);
 
-CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
+CREATE INDEX IF NOT EXISTS idx_erc20_tokens_address ON erc20_tokens (address);
 
-CREATE INDEX IF NOT EXISTS idx_erc20_balances_address ON erc20_balances (address);
-CREATE INDEX IF NOT EXISTS idx_erc20_balances_address_symbol ON erc20_balances (address, symbol ASC);
+CREATE INDEX IF NOT EXISTS idx_erc20_balances_eth_address ON erc20_balances (eth_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_balances_eth_address_value ON erc20_balances (eth_address, value DESC);
+
+CREATE INDEX IF NOT EXISTS idx_erc20_registrations_last_queried ON erc20_registrations (last_queried ASC);
 
 UPDATE database_version SET version_number = 9;

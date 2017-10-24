@@ -23,13 +23,16 @@ urls = [
     (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
     (r"^/v1/ws/?$", websocket.WebsocketHandler),
 
+    # erc20
+    (r"^/v1/erc20/balance/(0x[0-9a-fA-F]{40})/?$", handlers.ERC20BalanceHandler),
+    (r"^/v1/erc20/tokens/?$", handlers.ERC20ListTokensHandler),
+
     # legacy
     (r"^/v1/register/?$", handlers.LegacyRegistrationHandler),
     (r"^/v1/deregister/?$", handlers.LegacyDeregistrationHandler),
 
     # (essentially) static file access
-    (r"^/tokens/?$", handlers.TokenHandler),
-    (r"^/token/(?P<symbol_png>.+\.png)$", handlers.TokenHandler),
+    (r"^/static/icon/(.+)\.png$", handlers.ERC20TokenIconHandler),
 ]
 
 class Application(toshi.web.Application):
