@@ -318,7 +318,13 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                         # sanity check to make sure the tx still exists
                         if tx is None:
                             # if not, set to error!
-                            log.warning("WARNING: unconfirmed transaction '{}' is not visible on the monitor node".format(transaction['hash']))
+                            log.warning("WARNING: unconfirmed transaction '{}' is not visible on the monitor node. Setting back to queued to force resubmission".format(transaction['hash']))
+                            async with self.db:
+                                await self.db.execute("UPDATE transactions SET status = $2 WHERE transaction_id = $1",
+                                                      transaction['transaction_id'], 'queued')
+                                await self.db.commit()
+
+                            addresses_to_check.add(transaction['from_address'])
 
                         elif tx['blockNumber'] is not None:
                             # confirmed! update the status
@@ -332,7 +338,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
             else:
 
-                log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!")
+                log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
                 # trigger queue processing as last resort
                 addresses_to_check.add(ethereum_address)
 
