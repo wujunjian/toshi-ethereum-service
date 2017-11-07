@@ -4,17 +4,32 @@ A light service that sits ontop of a standard ethereum node and provides helper 
 
 ## Running
 
+### Requirements
+
+- Python >= 3.5
+- Postgresql >= 9.6
+- Redis >= 3.0.0
+- Parity == 1.7.8
+
 ### Setup env
 
 ```
-python3 -m virtualenv env
-env/bin/pip install -r requirements.txt
+virtualenv -p python3 env
+env/bin/pip install -r requirements-base.txt
+env/bin/pip install -r requirements-development.txt
 ```
 
 ### Running
 
 ```
-DATABASE_URL=postgres://<postgres-dsn> REDIS_URL=redis://<redis-dsn> ETHERERUM_NODE_URL=<jsonrpc-url> env/bin/python -m toshieth
+export DATABASE_URL=postgres://<postgres-dsn>
+export REDIS_URL=redis://<redis-dsn>
+export ETHERERUM_NODE_URL=<jsonrpc-url>
+trap 'kill $(jobs -p)' EXIT
+env/bin/python -m toshieth &
+env/bin/python -m toshieth.monitor &
+env/bin/python -m toshieth.manager &
+wait
 ```
 
 ## Running on heroku
