@@ -285,7 +285,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         async with self.db:
             rows = await self.db.fetch(
                 "SELECT DISTINCT from_address FROM transactions WHERE (status = 'unconfirmed' OR status = 'queued' OR status IS NULL) "
-                "AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
+                "AND v IS NOT NULL AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
             )
         if rows:
             log.info("sanity check found {} addresses with potential problematic transactions".format(len(rows)))
@@ -301,7 +301,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 unconfirmed_transactions = await self.db.fetch(
                     "SELECT * FROM transactions "
                     "WHERE from_address = $1 "
-                    "AND status = 'unconfirmed'",
+                    "AND status = 'unconfirmed' AND v IS NOT NULL",
                     ethereum_address)
 
             if len(unconfirmed_transactions) > 0:
