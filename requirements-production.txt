@@ -1,2 +1,2 @@
 mixpanel
--e git+ssh://git@github.com/toshiapp/toshi-services-lib.git@production#egg=toshi-services
+-e git+https://github.com/toshiapp/toshi-services-lib.git@production#egg=toshi-services
