@@ -615,7 +615,7 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(resp.code, 200, resp.body)
 
         # lets the transaction queue processing run before ending the test
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(1)
 
     @gen_test(timeout=30)
     @requires_database
@@ -676,3 +676,30 @@ class TransactionTest(EthServiceBaseTest):
         body = json_decode(resp.body)
         self.assertEqual(len(body['errors']), 1)
         self.assertEqual(body['errors'][0]['id'], 'insufficient_funds')
+
+    @gen_test(timeout=15)
+    @requires_full_stack
+    async def test_gas_station_gas_price(self):
+
+        gas_price = 50000000000
+        assert(gas_price != DEFAULT_GASPRICE)
+        self.redis.set("gas_station_standard_gas_price", hex(gas_price))
+
+        body = {
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10
+        }
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+        self.assertEqual(resp.code, 200)
+        result = json_decode(resp.body)
+        self.assertEqual(result['gas_price'], hex(gas_price))
+
+        # make sure specifying a specific gas price still works
+        body['gas_price'] = DEFAULT_GASPRICE
+
+        resp = await self.fetch("/tx/skel", method="POST", body=body)
+        self.assertEqual(resp.code, 200)
+        result = json_decode(resp.body)
+        self.assertEqual(result['gas_price'], hex(DEFAULT_GASPRICE))

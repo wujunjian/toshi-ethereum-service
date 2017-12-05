@@ -137,7 +137,12 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
 
         if gas_price is None:
-            gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
+            # try and use cached gas station gas price
+            gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
+            if gas_station_gas_price:
+                gas_price = parse_int(gas_station_gas_price)
+            if gas_price is None:
+                gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
         else:
             gas_price = parse_int(gas_price)
             if gas_price is None:
@@ -158,7 +163,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         transaction = encode_transaction(tx)
 
-        return transaction
+        return {"tx": transaction, "gas": hex(gas), "gas_price": hex(gas_price), "nonce": hex(nonce), "value": hex(value)}
 
     async def send_transaction(self, *, tx, signature=None):
 

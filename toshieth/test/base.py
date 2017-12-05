@@ -149,6 +149,11 @@ def requires_block_monitor(func=None, cls=toshieth.monitor.BlockMonitor, pass_mo
     else:
         return wrap
 
+# overrides the start method to not trigger things that should only run when live
+class TestTaskManager(toshieth.manager.TaskManager):
+    def start(self):
+        return self.task_listener.start_task_listener()
+
 def requires_task_manager(func=None, pass_manager=False):
     """Used to ensure all database connections are returned to the pool
     before finishing the test"""
@@ -160,7 +165,7 @@ def requires_task_manager(func=None, pass_manager=False):
             if 'redis' not in self._app.config:
                 raise Exception("Missing redis config from setup")
 
-            task_manager = toshieth.manager.TaskManager(
+            task_manager = TestTaskManager(
                 config=self._app.config,
                 connection_pool=self._app.connection_pool,
                 redis_connection_pool=self._app.redis_connection_pool)

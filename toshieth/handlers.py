@@ -96,9 +96,7 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
         except TypeError:
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
 
-        self.write({
-            "tx": result
-        })
+        self.write(result)
 
 class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMixin, RequestVerificationMixin, BaseHandler):
 

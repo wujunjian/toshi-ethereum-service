@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import re
 
+from tornado.httpclient import AsyncHTTPClient
+from tornado.escape import json_decode
 from toshi.database import DatabaseMixin
 from toshi.redis import RedisMixin
 from toshieth.mixins import BalanceMixin
@@ -350,6 +353,29 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         if frequency:
             self.tasks.sanity_check(frequency, delay=frequency)
 
+    async def update_default_gas_price(self, frequency):
+
+        client = AsyncHTTPClient()
+        try:
+            resp = await client.fetch("https://ethgasstation.info/json/ethgasAPI.json")
+            rval = json_decode(resp.body)
+
+            if 'average' not in rval:
+                log.error("Unexpected results from EthGasStation: {}".format(resp.body))
+            elif not isinstance(rval['average'], float):
+                log.error("Unexpected 'average' gas price returned by EthGasStation: {}".format(rval['average']))
+            else:
+                gwei_x10 = int(rval['average'])
+                wei = gwei_x10 * 100000000
+
+                self.redis.set('gas_station_standard_gas_price', hex(wei))
+
+        except:
+            log.exception("Error updating default gas price from EthGasStation")
+
+        if frequency:
+            self.tasks.update_default_gas_price(frequency, delay=frequency)
+
 class TaskManager(TaskListenerApplication):
 
     def __init__(self, *args, **kwargs):
@@ -361,6 +387,7 @@ class TaskManager(TaskListenerApplication):
         # XXX: delay 10 so the redis connection is active before
         # it gets called.. this shouldn't matter
         self.task_listener.call_task('sanity_check', 60, delay=10)
+        self.task_listener.call_task('update_default_gas_price', 60, delay=10)
         return super().start()
 
 if __name__ == "__main__":

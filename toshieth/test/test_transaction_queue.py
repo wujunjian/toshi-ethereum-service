@@ -374,7 +374,7 @@ class TransactionQueueTest(EthServiceBaseTest):
         val = 1000 ** 18
         txs = []
         # send funds to address1
-        tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS_1, val)
+        tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS_1, val, gas_price=DEFAULT_GASPRICE)
         txs.append(tx_hash)
 
         addr1, pk1 = TEST_ADDRESS_1, TEST_PRIVATE_KEY_1
@@ -382,7 +382,7 @@ class TransactionQueueTest(EthServiceBaseTest):
         for i in range(10):
             val = val - default_fees
             # send funds
-            tx_hash = await self.send_tx(pk1, addr2, val)
+            tx_hash = await self.send_tx(pk1, addr2, val, gas_price=DEFAULT_GASPRICE)
             txs.append(tx_hash)
             # swap all the variables
             addr1, pk1, addr2, pk2 = addr2, pk2, addr1, pk1

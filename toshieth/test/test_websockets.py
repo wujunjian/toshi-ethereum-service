@@ -117,7 +117,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
             "to": addr,
             "value": val
         })
-        tx = sign_transaction(result, TEST_ID_KEY)
+        tx = sign_transaction(result['tx'], TEST_ID_KEY)
 
         tx_hash = await ws_con.call("send_transaction", {
             "tx": tx
