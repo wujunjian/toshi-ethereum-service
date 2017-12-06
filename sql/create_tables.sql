@@ -65,6 +65,14 @@ CREATE TABLE IF NOT EXISTS tokens (
     last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
+CREATE TABLE IF NOT EXISTS from_address_gas_price_whitelist (
+    address VARCHAR PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS to_address_gas_price_whitelist (
+    address VARCHAR PRIMARY KEY
+);
+
 CREATE INDEX IF NOT EXISTS idx_transactions_hash ON transactions (hash);
 CREATE INDEX IF NOT EXISTS idx_transactions_hash_by_id_sorted ON transactions (hash, transaction_id DESC);
 
@@ -79,4 +87,4 @@ CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON
 
 CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
 
-UPDATE database_version SET version_number = 8;
+UPDATE database_version SET version_number = 9;

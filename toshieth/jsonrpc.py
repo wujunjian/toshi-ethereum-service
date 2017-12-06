@@ -136,6 +136,17 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             if gas is None:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
 
+        # check if we should ignore the given gasprice
+        # NOTE: only meant to be here while cryptokitty fever is pushing
+        # up gas prices... this shouldn't be perminant
+        if gas_price is not None:
+            async with self.db:
+                whitelisted = await self.db.fetchrow("SELECT 1 FROM from_address_gas_price_whitelist WHERE address = $1", from_address)
+                if not whitelisted:
+                    whitelisted = await self.db.fetchrow("SELECT 1 FROM to_address_gas_price_whitelist WHERE address = $1", to_address)
+            if not whitelisted:
+                gas_price = None
+
         if gas_price is None:
             # try and use cached gas station gas price
             gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')

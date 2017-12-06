@@ -684,7 +684,8 @@ class TransactionTest(EthServiceBaseTest):
         gas_price = 50000000000
         assert(gas_price != DEFAULT_GASPRICE)
         self.redis.set("gas_station_standard_gas_price", hex(gas_price))
-
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO from_address_gas_price_whitelist (address) VALUES ($1)", FAUCET_ADDRESS)
         body = {
             "from": FAUCET_ADDRESS,
             "to": TEST_ADDRESS,
