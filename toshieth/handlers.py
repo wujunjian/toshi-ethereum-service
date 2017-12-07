@@ -10,7 +10,7 @@ from toshi.analytics import AnalyticsMixin
 
 from toshi.sofa import SofaPayment
 from toshi.handlers import RequestVerificationMixin, SimpleFileHandler
-from toshi.utils import validate_address
+from toshi.utils import validate_address, parse_int
 from toshi.log import log, log_headers_on_error
 
 from .mixins import BalanceMixin
@@ -155,6 +155,71 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
         else:
 
             self.write(tx)
+
+
+class AddressHandler(DatabaseMixin, BaseHandler):
+
+    async def get(self, address):
+
+        offset = parse_int(self.get_argument('offset', '0'))
+        limit = parse_int(self.get_argument('limit', '10'))
+        status = self.get_argument('status', None)
+        direction = self.get_argument('direction', None)
+
+        if not validate_address(address) or \
+           offset is None or \
+           limit is None or \
+           (status and status not in ['confirmed', 'unconfirmed', 'queued']) or \
+           (direction and direction not in ['in', 'out']):
+            raise JSONHTTPError(400, body={'id': 'bad_arguments', 'message': 'Bad Arguments'})
+
+        query = "SELECT * FROM transactions WHERE "
+        args = [address, offset, limit, status or "error"]
+
+        if direction == 'in':
+            query += "to_address = $1 "
+        elif direction == 'out':
+            query += "from_address = $1 "
+        else:
+            query += "(from_address = $1 OR to_address = $1) "
+
+        if status == 'queued':
+            query += "AND (status = $4 OR status IS NULL) "
+        elif status is not None:
+            query += "AND status = $4 "
+        else:
+            # just don't report "error"
+            query += "AND (status != $4 OR status IS NULL) "
+
+        query += "ORDER BY created DESC OFFSET $2 LIMIT $3"
+
+        async with self.db:
+            rows = await self.db.fetch(query, *args)
+
+        transactions = []
+        for row in rows:
+            transactions.append({
+                "hash": row['hash'],
+                "to": row['to_address'],
+                "from": row['from_address'],
+                "nonce": hex(row['nonce']),
+                "value": row['value'],
+                "gas": row['gas'],
+                "gas_price": row['gas_price'],
+                "created_data": row['created'].isoformat(),
+                "confirmed_data": row['updated'].isoformat() if row['blocknumber'] else None,
+                "status": row['status']
+            })
+        resp = {
+            "transactions": transactions,
+            "offset": offset,
+            "limit": limit
+        }
+        if direction is not None:
+            resp['direction'] = direction
+        if status is not None:
+            resp['status'] = status
+        self.write(resp)
 
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 

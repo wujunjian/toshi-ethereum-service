@@ -1,18 +1,9 @@
-import asyncio
-import time
-from tornado.escape import json_decode, json_encode
 from tornado.testing import gen_test
-from tornado.platform.asyncio import to_asyncio_future
-
-from toshieth.test.base import EthServiceBaseTest, requires_task_manager, requires_full_stack
-from toshi.test.database import requires_database
-from toshi.test.redis import requires_redis
-from toshi.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from toshi.analytics import encode_id
-from toshi.request import sign_request
-from toshi.ethereum.utils import data_decoder, data_encoder
-from toshi.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
-from toshi.utils import parse_int
+from tornado.escape import json_decode
+from toshieth.test.base import EthServiceBaseTest, requires_full_stack
+from toshi.test.ethereum.parity import FAUCET_ADDRESS
+from toshi.ethereum.utils import data_decoder
+from toshi.ethereum.tx import DEFAULT_GASPRICE
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
