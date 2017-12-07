@@ -103,6 +103,19 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         # check optional arguments
 
+        # check if we should ignore the given gasprice
+        # NOTE: only meant to be here while cryptokitty fever is pushing
+        # up gas prices... this shouldn't be perminant
+        # anytime the nonce is also set, use the provided gas (this is to
+        # support easier overwriting of transactions)
+        if gas_price is not None and nonce is None:
+            async with self.db:
+                whitelisted = await self.db.fetchrow("SELECT 1 FROM from_address_gas_price_whitelist WHERE address = $1", from_address)
+                if not whitelisted:
+                    whitelisted = await self.db.fetchrow("SELECT 1 FROM to_address_gas_price_whitelist WHERE address = $1", to_address)
+            if not whitelisted:
+                gas_price = None
+
         if nonce is None:
             # check cache for nonce
             nonce = await self.get_transaction_count(from_address)
@@ -135,17 +148,6 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             gas = parse_int(gas)
             if gas is None:
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
-
-        # check if we should ignore the given gasprice
-        # NOTE: only meant to be here while cryptokitty fever is pushing
-        # up gas prices... this shouldn't be perminant
-        if gas_price is not None:
-            async with self.db:
-                whitelisted = await self.db.fetchrow("SELECT 1 FROM from_address_gas_price_whitelist WHERE address = $1", from_address)
-                if not whitelisted:
-                    whitelisted = await self.db.fetchrow("SELECT 1 FROM to_address_gas_price_whitelist WHERE address = $1", to_address)
-            if not whitelisted:
-                gas_price = None
 
         if gas_price is None:
             # try and use cached gas station gas price
@@ -236,42 +238,45 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                        raise_when_locked=partial(JsonRPCInvalidParamsError, data={'id': 'invalid_nonce', 'message': 'Nonce already used'}),
                        ex=5):
 
-            # disallow transaction overwriting for known transactions
+            # check for transaction overwriting
             async with self.db:
                 existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
                                                   "from_address = $1 AND nonce = $2 AND status != $3",
                                                   from_address, tx.nonce, 'error')
-            if existing:
-                # debugging checks
-                existing_tx = await self.eth.eth_getTransactionByHash(existing['hash'])
+
+            # disallow transaction overwriting when the gas is lower or the transaction is confirmed
+            if existing and (parse_int(existing['gas_price']) >= tx.gasprice or existing['status'] == 'confirmed'):
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Nonce already used'})
 
             # make sure the account has enough funds for the transaction
             network_balance, balance, _, _ = await self.get_balances(from_address)
-
-            #log.info("Attempting to send transaction\nHash: {}\n{} -> {}\nValue: {} + {} (gas) * {} (startgas) = {}\nSender's Balance {} ({} unconfirmed)".format(
-            #    calculate_transaction_hash(tx), from_address, to_address, tx.value, tx.startgas, tx.gasprice, tx.value + (tx.startgas * tx.gasprice), network_balance, balance))
+            if existing:
+                balance = balance - (parse_int(existing['value']) + parse_int(existing['gas']) * parse_int(existing['gas_price']))
 
             if balance < (tx.value + (tx.startgas * tx.gasprice)):
                 raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
 
-            # validate the nonce
-            c_nonce = await self.get_transaction_count(from_address)
+            # validate the nonce (only necessary if tx doesn't already exist)
+            if not existing:
+                c_nonce = await self.get_transaction_count(from_address)
 
-            if tx.nonce < c_nonce:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
-            if tx.nonce > c_nonce:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
+                if tx.nonce < c_nonce:
+                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too low'})
+                if tx.nonce > c_nonce:
+                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_nonce', 'message': 'Provided nonce is too high'})
 
             if tx.intrinsic_gas_used > tx.startgas:
                 raise JsonRPCInvalidParamsError(data={
                     'id': 'invalid_transaction',
-                    'message': 'Transaction gas is too low. There is not enough gas to cover minimal cost of the transaction (minimal: {}, got: {}). Try increasing supplied gas.'.format(
-                        tx.intrinsic_gas_used, tx.startgas)})
+                    'message': 'Transaction gas is too low. There is not enough gas to cover minimal cost of the transaction (minimal: {}, got: {}). Try increasing supplied gas.'.format(tx.intrinsic_gas_used, tx.startgas)})
 
             # now this tx fits enough of the criteria to allow it
             # onto the transaction queue
             tx_hash = calculate_transaction_hash(tx)
+
+            if existing:
+                log.info("Setting tx '{}' to error due to forced overwrite".format(existing['hash']))
+                self.tasks.update_transaction(existing['transaction_id'], 'error', 1)
 
             # add tx to database
             async with self.db:
