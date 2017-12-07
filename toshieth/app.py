@@ -24,6 +24,8 @@ urls = [
     (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
     (r"^/v1/ws/?$", websocket.WebsocketHandler),
 
+    (r"^/v1/gasprice/?$", handlers.GasPriceHandler),
+
     # legacy
     (r"^/v1/register/?$", handlers.LegacyRegistrationHandler),
     (r"^/v1/deregister/?$", handlers.LegacyDeregistrationHandler),

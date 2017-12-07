@@ -16,7 +16,7 @@ from toshi.log import log, log_headers_on_error
 from .mixins import BalanceMixin
 from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
-from toshi.ethereum.tx import transaction_to_json
+from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
 
 
 class TokenHandler(DatabaseMixin, SimpleFileHandler):
@@ -220,6 +220,16 @@ class AddressHandler(DatabaseMixin, BaseHandler):
         if status is not None:
             resp['status'] = status
         self.write(resp)
+
+class GasPriceHandler(RedisMixin, BaseHandler):
+
+    def get(self):
+        gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
+        if gas_station_gas_price is None:
+            gas_station_gas_price = hex(self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE))
+        self.write({
+            "gas_price": gas_station_gas_price
+        })
 
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 
