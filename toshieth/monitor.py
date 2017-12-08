@@ -315,11 +315,12 @@ class BlockMonitor(TaskListenerApplication):
                     # otherwise, we have to notify the interested parties of the overwrite
                     if db_tx['status'] != 'error':
 
-                        log.warning("found overwritten transaction!")
-                        log.warning("tx from: {}".format(from_address))
-                        log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
-                        log.warning("old tx hash: {}".format(db_tx['hash']))
-                        log.warning("new tx hash: {}".format(transaction['hash']))
+                        if db_tx['v'] is not None:
+                            log.warning("found overwritten transaction!")
+                            log.warning("tx from: {}".format(from_address))
+                            log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
+                            log.warning("old tx hash: {}".format(db_tx['hash']))
+                            log.warning("new tx hash: {}".format(transaction['hash']))
 
                         self.tasks.update_transaction(db_tx['transaction_id'], 'error')
                     # fall through to the "new transaction" code
