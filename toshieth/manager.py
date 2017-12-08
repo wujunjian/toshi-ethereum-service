@@ -56,7 +56,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
     async def _process_transaction_queue(self, ethereum_address):
 
-        log.info("processing tx queue for {}".format(ethereum_address))
+        log.debug("processing tx queue for {}".format(ethereum_address))
 
         # check for un-scheduled transactions
         async with self.db:
@@ -231,7 +231,9 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 log.warning("Trying to update status of tx {} to error, but tx is already confirmed".format(tx['hash']))
                 return
 
-            log.info("Updating status of tx {} to {} (previously: {})".format(tx['hash'], status, tx['status']))
+            # only log if the transaction is internal
+            if tx['v'] is not None:
+                log.info("Updating status of tx {} to {} (previously: {})".format(tx['hash'], status, tx['status']))
 
             if status == 'confirmed':
                 transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
@@ -291,9 +293,11 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 "AND v IS NOT NULL AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
             )
         if rows:
-            log.info("sanity check found {} addresses with potential problematic transactions".format(len(rows)))
+            log.debug("sanity check found {} addresses with potential problematic transactions".format(len(rows)))
 
         addresses_to_check = set()
+
+        old_and_unconfirmed = []
 
         for row in rows:
 
@@ -337,13 +341,25 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
                         else:
 
-                            log.warning("WARNING: transaction '{}' is on the node that is old and unconfirmed".format(transaction['hash']))
+                            old_and_unconfirmed.append(transaction['hash'])
 
             else:
 
-                log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
-                # trigger queue processing as last resort
-                addresses_to_check.add(ethereum_address)
+                # make sure there are pending incoming transactions
+                async with self.db:
+                    incoming_transactions = await self.db.fetchrow(
+                        "SELECT 1 FROM transactions "
+                        "WHERE to_address = $1 "
+                        "AND status = 'unconfirmed' OR status = 'queued'",
+                        ethereum_address)
+
+                if not incoming_transactions:
+                    log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
+                    # trigger queue processing as last resort
+                    addresses_to_check.add(ethereum_address)
+
+        if len(old_and_unconfirmed):
+            log.warning("WARNING: {} transactions are old and unconfirmed!".format(len(old_and_unconfirmed)))
 
         for address in addresses_to_check:
             # make sure we don't try process any contract deployments

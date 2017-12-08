@@ -25,7 +25,7 @@ class PushNotificationHandler(DatabaseMixin, TaskHandler):
         for row in rows:
             service = row['service']
             if service in ['gcm', 'apn']:
-                log.info("Sending {} PN to: {} ({})".format(service, eth_address, row['registration_id']))
+                log.debug("Sending {} PN to: {} ({})".format(service, eth_address, row['registration_id']))
                 await self.pushclient.send(row['toshi_id'], service, row['registration_id'], {"message": message})
 
 class PushNotificationService(TaskListenerApplication):
