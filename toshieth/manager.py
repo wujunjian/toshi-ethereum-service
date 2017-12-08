@@ -98,12 +98,14 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     "ORDER BY nonce",
                     ethereum_address, last_blocknumber or 0)
 
+            network_nonce = await self.eth.eth_getTransactionCount(ethereum_address, block=last_blocknumber or "latest")
+
             if unconfirmed_txs:
                 nonce = unconfirmed_txs[-1]['nonce'] + 1
                 balance -= sum(parse_int(tx['value']) + (parse_int(tx['gas']) * parse_int(tx['gas_price'])) for tx in unconfirmed_txs)
             else:
                 # use the nonce from the network
-                nonce = await self.eth.eth_getTransactionCount(ethereum_address, block=last_blocknumber or "latest")
+                nonce = network_nonce
 
             # marker for whether a previous transaction had an error (signaling
             # that all the following should also be an error
@@ -122,13 +124,70 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
                 # make sure the nonce is still valid
                 if nonce != transaction['nonce']:
-                    # then this and all the following transactions are now invalid
-                    previous_error = True
-                    log.info("Setting tx '{}' to error due to the nonce ({}) not matching the network ({})".format(
-                        transaction['hash'], transaction['nonce'], nonce))
-                    await self.update_transaction(transaction['transaction_id'], 'error')
-                    addresses_to_check.add(transaction['to_address'])
-                    continue
+                    # check if this is an overwrite
+                    if transaction['status'] is None:
+                        async with self.db:
+                            old_tx = await self.db.fetchrow("SELECT * FROM transactions where from_address = $1 AND nonce = $2 AND hash != $3", ethereum_address, transaction['nonce'], transaction['hash'])
+                        if old_tx:
+                            if old_tx['status'] == 'error':
+                                # expected state for overwrites
+                                pass
+                            elif old_tx['status'] == 'unconfirmed' or old_tx['status'] == 'confirmed':
+                                previous_error = True
+                                log.info(("Setting tx '{}' to error due to another unconfirmed transaction"
+                                          "with nonce ({}) already existing in the system").format(
+                                              transaction['hash'], transaction['nonce']))
+                                await self.update_transaction(transaction['transaction_id'], 'error')
+                                addresses_to_check.add(transaction['to_address'])
+                                continue
+                            else:
+                                # two transactions with the same nonce on the queue
+                                # lets pick the one with the highest gas price and error the other
+                                if transaction['nonce'] > old_tx['nonce']:
+                                    # lets use this one!
+                                    log.info(("Setting tx '{}' to error due to another unconfirmed transaction"
+                                              "with nonce ({}) already existing in the system").format(
+                                                  old_tx['hash'], transaction['nonce']))
+                                    await self.update_transaction(old_tx['transaction_id'], 'error')
+                                    addresses_to_check.add(old_tx['to_address'])
+                                    # make sure the other transaction is pulled out of the queue
+                                    try:
+                                        idx = next(i for i, e in enumerate(transactions_out) if e['transaction_id'] == old_tx['transaction_id'])
+                                        del transactions_out[idx]
+                                    except:
+                                        # old_tx not in the transactions_out list
+                                        pass
+                                else:
+                                    # we'll use the other one
+                                    log.info(("Setting tx '{}' to error due to another unconfirmed transaction"
+                                              "with nonce ({}) already existing in the system").format(
+                                                  old_tx['hash'], transaction['nonce']))
+                                    await self.update_transaction(transaction['transaction_id'], 'error')
+                                    addresses_to_check.add(transaction['to_address'])
+                                    addresses_to_check.add(transaction['from_address'])
+                                    # this case is actually pretty weird, so emptying the
+                                    # transactions_out so we restart the queue check
+                                    # completely
+                                    transactions_out = []
+                                    continue
+
+                        else:
+                            # well this is awkward! may as well let things go on in this case because
+                            # it means a transaction in the nonce sequence is missing
+                            pass
+                    elif transaction['state'] == 'queued':
+                        # then this and all the following transactions are now invalid
+                        previous_error = True
+                        log.info("Setting tx '{}' to error due to the nonce ({}) not matching the network ({})".format(
+                            transaction['hash'], transaction['nonce'], nonce))
+                        await self.update_transaction(transaction['transaction_id'], 'error')
+                        addresses_to_check.add(transaction['to_address'])
+                        continue
+                    else:
+                        # this is a really weird state
+                        # it's not clear what should be done here
+                        log.error("Found unconfirmed transaction with out of order nonce for address: {}".format(ethereum_address))
+                        return
 
                 value = parse_int(transaction['value'])
                 gas = parse_int(transaction['gas'])
@@ -140,7 +199,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     # if so, send the transaction
                     # create the transaction
                     data = data_decoder(transaction['data']) if transaction['data'] else b''
-                    tx = create_transaction(nonce=nonce, value=value, gasprice=gas_price, startgas=gas,
+                    tx = create_transaction(nonce=transaction['nonce'], value=value, gasprice=gas_price, startgas=gas,
                                             to=transaction['to_address'], data=data,
                                             v=parse_int(transaction['v']),
                                             r=parse_int(transaction['r']),

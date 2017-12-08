@@ -276,7 +276,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
             if existing:
                 log.info("Setting tx '{}' to error due to forced overwrite".format(existing['hash']))
-                self.tasks.update_transaction(existing['transaction_id'], 'error', 1)
+                self.tasks.update_transaction(existing['transaction_id'], 'error')
 
             # add tx to database
             async with self.db:
