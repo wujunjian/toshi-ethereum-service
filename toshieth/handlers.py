@@ -63,6 +63,10 @@ class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
     async def get(self, address):
 
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
         try:
             result = await ToshiEthJsonRPC(None, self.application, self.request).get_balance(address)
         except JsonRPCError as e:
@@ -125,6 +129,10 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
     async def get(self, tx_hash):
 
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
         format = self.get_query_argument('format', 'rpc').lower()
 
         try:
@@ -160,6 +168,10 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 class AddressHandler(DatabaseMixin, BaseHandler):
 
     async def get(self, address):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
 
         offset = parse_int(self.get_argument('offset', '0'))
         limit = parse_int(self.get_argument('limit', '10'))
@@ -224,6 +236,11 @@ class AddressHandler(DatabaseMixin, BaseHandler):
 class GasPriceHandler(RedisMixin, BaseHandler):
 
     def get(self):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
         gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
         if gas_station_gas_price is None:
             gas_station_gas_price = hex(self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE))
