@@ -1,21 +1,13 @@
-import asyncio
 import os
-import time
 import random
 import binascii
-from tornado.escape import json_decode, json_encode
+from tornado.escape import json_decode
 from tornado.testing import gen_test
-from tornado.platform.asyncio import to_asyncio_future
 
-from toshieth.test.base import EthServiceBaseTest, requires_task_manager, requires_full_stack
+from toshieth.test.base import EthServiceBaseTest, requires_full_stack
 from toshi.test.database import requires_database
-from toshi.test.redis import requires_redis
-from toshi.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from toshi.analytics import encode_id
-from toshi.request import sign_request
-from toshi.ethereum.utils import data_decoder, data_encoder
-from toshi.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
-from toshi.utils import parse_int
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY
+from toshi.ethereum.utils import data_decoder
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -70,6 +62,12 @@ class TransactionListTest(EthServiceBaseTest):
         for tx in body['transactions']:
             self.assertEqual(tx['status'], 'confirmed')
 
+        resp = await self.fetch("/address/{}?status=confirmed&status=unconfirmed".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertIn('transactions', body)
+        self.assertEqual(len(body['transactions']), 10)
+
     @gen_test
     @requires_database
     async def test_direction_filtering(self):
@@ -119,6 +117,37 @@ class TransactionListTest(EthServiceBaseTest):
 
     @gen_test
     @requires_database
+    async def test_order_filtering(self):
+        async with self.pool.acquire() as con:
+            out = True
+            for i in range(10):
+                await con.execute("INSERT INTO transactions (hash, from_address, to_address, nonce, value, status) VALUES ($1, $2, $3, $4, $5, $6)", random_hash(), TEST_ADDRESS if out else random_hash(), random_address() if out else TEST_ADDRESS, int(i / 2) if out else random.randint(0, 100), hex(random.randint(1, 100) ** 16), 'confirmed')
+                out = not out
+
+        resp = await self.fetch("/address/{}?direction=out&order=asc".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertIn('transactions', body)
+        self.assertEqual(len(body['transactions']), 5)
+        expected_nonce = 0
+        for tx in body['transactions']:
+            self.assertEqual(tx['from'], TEST_ADDRESS)
+            self.assertEqual(int(tx['nonce'], 16), expected_nonce)
+            expected_nonce += 1
+
+        resp = await self.fetch("/address/{}?direction=out&order=desc".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertIn('transactions', body)
+        self.assertEqual(len(body['transactions']), 5)
+        expected_nonce -= 1
+        for tx in body['transactions']:
+            self.assertEqual(tx['from'], TEST_ADDRESS)
+            self.assertEqual(int(tx['nonce'], 16), expected_nonce)
+            expected_nonce -= 1
+
+    @gen_test
+    @requires_database
     async def test_bad_values(self):
         resp = await self.fetch("/address/abc")
         self.assertResponseCodeEqual(resp, 404)
@@ -133,4 +162,7 @@ class TransactionListTest(EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 400)
 
         resp = await self.fetch("/address/{}?direction=a".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 400)
+
+        resp = await self.fetch("/address/{}?order=a".format(TEST_ADDRESS))
         self.assertResponseCodeEqual(resp, 400)

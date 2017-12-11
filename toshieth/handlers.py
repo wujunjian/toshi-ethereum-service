@@ -175,35 +175,42 @@ class AddressHandler(DatabaseMixin, BaseHandler):
 
         offset = parse_int(self.get_argument('offset', '0'))
         limit = parse_int(self.get_argument('limit', '10'))
-        status = self.get_argument('status', None)
-        direction = self.get_argument('direction', None)
+        status = set([s.lower() for s in self.get_arguments('status')])
+        direction = set([d.lower() for d in self.get_arguments('direction')])
+        order = self.get_argument('order', 'desc').upper()
 
         if not validate_address(address) or \
            offset is None or \
            limit is None or \
-           (status and status not in ['confirmed', 'unconfirmed', 'queued']) or \
-           (direction and direction not in ['in', 'out']):
+           (status and not status.issubset(['confirmed', 'unconfirmed', 'queued', 'error'])) or \
+           (direction and not direction.issubset(['in', 'out'])) or \
+           (order not in ['DESC', 'ASC']):
             raise JSONHTTPError(400, body={'id': 'bad_arguments', 'message': 'Bad Arguments'})
 
         query = "SELECT * FROM transactions WHERE "
-        args = [address, offset, limit, status or "error"]
+        args = [address, offset, limit]
 
-        if direction == 'in':
-            query += "to_address = $1 "
-        elif direction == 'out':
-            query += "from_address = $1 "
-        else:
+        if len(direction) == 0 or len(direction) == 2:
             query += "(from_address = $1 OR to_address = $1) "
+        elif 'in' in direction:
+            query += "to_address = $1 "
+        elif 'out' in direction:
+            query += "from_address = $1 "
 
-        if status == 'queued':
-            query += "AND (status = $4 OR status IS NULL) "
-        elif status is not None:
-            query += "AND status = $4 "
-        else:
-            # just don't report "error"
+        if len(status) == 0:
             query += "AND (status != $4 OR status IS NULL) "
+            args.append('error')
+        else:
+            status_query = []
+            for s in status:
+                if s == 'queued':
+                    status_query.extend(["status = ${}".format(len(args) + 1), "status IS NULL"])
+                else:
+                    status_query.append("status = ${}".format(len(args) + 1))
+                args.append(s)
+            query += "AND (" + " OR ".join(status_query) + ") "
 
-        query += "ORDER BY created DESC OFFSET $2 LIMIT $3"
+        query += "ORDER BY created {} OFFSET $2 LIMIT $3".format(order)
 
         async with self.db:
             rows = await self.db.fetch(query, *args)
@@ -226,12 +233,13 @@ class AddressHandler(DatabaseMixin, BaseHandler):
         resp = {
             "transactions": transactions,
             "offset": offset,
-            "limit": limit
+            "limit": limit,
+            "order": order
         }
-        if direction is not None:
-            resp['direction'] = direction
-        if status is not None:
-            resp['status'] = status
+        if len(direction) == 1:
+            resp['direction'] = direction.pop()
+        if status:
+            resp['status'] = "&".join(status)
         self.write(resp)
 
 class GasPriceHandler(RedisMixin, BaseHandler):
