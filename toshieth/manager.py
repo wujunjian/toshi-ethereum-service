@@ -196,6 +196,17 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
                 # check if the current balance is high enough to send to the network
                 if balance >= cost:
+
+                    # check if gas price is high enough that it makes sense to send the transaction
+                    safe_gas_price = parse_int(self.redis.get('gas_station_safelow_gas_price'))
+                    if safe_gas_price and safe_gas_price > gas_price:
+                        log.debug("Not queuing tx '{}' as current gas price would not support it".format(transaction['hash']))
+                        # retry this address in a minute
+                        self.tasks.process_transaction_queue(ethereum_address, delay=60)
+                        # abort the rest of the processing
+                        transactions_out = []
+                        break
+
                     # if so, send the transaction
                     # create the transaction
                     data = data_decoder(transaction['data']) if transaction['data'] else b''
@@ -444,6 +455,16 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 wei = gwei_x10 * 100000000
 
                 self.redis.set('gas_station_standard_gas_price', hex(wei))
+
+            if 'safeLow' not in rval:
+                log.error("Unexpected results from EthGasStation: {}".format(resp.body))
+            elif not isinstance(rval['safeLow'], float):
+                log.error("Unexpected 'safeLow' gas price returned by EthGasStation: {}".format(rval['safeLow']))
+            else:
+                gwei_x10 = int(rval['safeLow'])
+                wei = gwei_x10 * 100000000
+
+                self.redis.set('gas_station_safelow_gas_price', hex(wei))
 
         except:
             log.exception("Error updating default gas price from EthGasStation")
