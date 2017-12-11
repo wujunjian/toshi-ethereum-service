@@ -18,6 +18,7 @@ from toshi.ethereum.tx import (
     signature_from_transaction, add_signature_to_transaction,
     transaction_to_json, calculate_transaction_hash
 )
+from toshi.ethereum.utils import ecrecover
 
 from toshi.log import log
 
@@ -334,3 +335,29 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 tx = database_transaction_to_rlp_transaction(tx)
                 tx = transaction_to_json(tx)
         return tx
+
+    async def cancel_queued_transaction(self, tx_hash, signature):
+
+        if not validate_transaction_hash(tx_hash):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_transaction_hash', 'message': 'Invalid Transaction Hash'})
+
+        if not validate_signature(signature):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_signature', 'message': 'Invalid Signature'})
+
+        async with self.db:
+            tx = await self.db.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND (status != 'error' OR status IS NULL)",
+                                        tx_hash)
+        if tx is None:
+            raise JsonRPCError(None, -32000, "Transaction not found",
+                               {'id': 'not_found', 'message': 'Transaction not found'})
+        elif tx['status'] != 'queued' and tx['status'] is not None:
+            raise JsonRPCError(None, -32000, "Transaction already sent to node",
+                               {'id': 'invalid_transaction_status', 'message': 'Transaction already sent to node'})
+
+        message = "\x19Ethereum Signed Message:\n85Cancel transaction " + tx_hash
+        if not ecrecover(message, data_decoder(signature), tx['from_address']):
+            raise JsonRPCError(None, -32000, "Permission Denied",
+                               {'id': 'permission_denied', 'message': 'Permission Denied'})
+
+        log.info("Setting tx '{}' to error due to user cancelation".format(tx['hash']))
+        self.tasks.update_transaction(tx['transaction_id'], 'error')

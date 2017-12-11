@@ -164,6 +164,26 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
             self.write(tx)
 
+class CancelTransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
+
+    async def post(self):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST')
+
+        if 'tx_hash' not in self.json or 'signature' not in self.json:
+            raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
+
+        tx_hash = self.json['tx_hash']
+        signature = self.json['signature']
+
+        try:
+            await ToshiEthJsonRPC(None, self.application, self.request).cancel_queued_transaction(tx_hash, signature)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        self.set_status(204)
 
 class AddressHandler(DatabaseMixin, BaseHandler):
 

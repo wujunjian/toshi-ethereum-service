@@ -298,7 +298,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
             if tx['status'] == 'confirmed':
-                log.warning("Trying to update status of tx {} to error, but tx is already confirmed".format(tx['hash']))
+                log.warning("Trying to update status of tx {} to {}, but tx is already confirmed".format(tx['hash'], status))
                 return
 
             # only log if the transaction is internal
