@@ -7,7 +7,7 @@ from toshi.test.redis import requires_redis
 from toshi.test.database import requires_database
 from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from toshi.ethereum.tx import create_transaction, sign_transaction, calculate_transaction_hash
-from toshi.ethereum.utils import data_decoder, data_encoder, sign_payload
+from toshi.ethereum.utils import data_decoder, data_encoder, personal_sign
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
@@ -25,7 +25,7 @@ class MockTaskHandler(TaskHandler):
         self.listener.task_queue.put_nowait((transaction_id, status))
 
 
-class TransactionListTest(EthServiceBaseTest):
+class TransactionCancelTest(EthServiceBaseTest):
 
     @gen_test(timeout=15)
     @requires_database
@@ -47,7 +47,7 @@ class TransactionListTest(EthServiceBaseTest):
                               data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                               'queued')
 
-        signature = sign_payload(FAUCET_PRIVATE_KEY, "\x19Ethereum Signed Message:\n85Cancel transaction " + tx_hash)
+        signature = personal_sign(FAUCET_PRIVATE_KEY, "Cancel transaction " + tx_hash)
 
         resp = await self.fetch("/tx/cancel", method="POST", body={"tx_hash": tx_hash, "signature": signature})
         self.assertResponseCodeEqual(resp, 204)
@@ -76,7 +76,7 @@ class TransactionListTest(EthServiceBaseTest):
                               data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                               'unconfirmed')
 
-        signature = sign_payload(FAUCET_PRIVATE_KEY, "\x19Ethereum Signed Message:\n85Cancel transaction " + tx_hash)
+        signature = personal_sign(FAUCET_PRIVATE_KEY, "Cancel transaction " + tx_hash)
 
         resp = await self.fetch("/tx/cancel", method="POST", body={"tx_hash": tx_hash, "signature": signature})
         self.assertResponseCodeEqual(resp, 400)
@@ -111,7 +111,7 @@ class TransactionListTest(EthServiceBaseTest):
                               data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                               'queued')
 
-        signature = sign_payload(TEST_PRIVATE_KEY, "\x19Ethereum Signed Message:\n85Cancel transaction " + tx_hash)
+        signature = personal_sign(TEST_PRIVATE_KEY, "Cancel transaction " + tx_hash)
 
         resp = await self.fetch("/tx/cancel", method="POST", body={"tx_hash": tx_hash, "signature": signature})
         self.assertResponseCodeEqual(resp, 400)

@@ -18,7 +18,7 @@ from toshi.ethereum.tx import (
     signature_from_transaction, add_signature_to_transaction,
     transaction_to_json, calculate_transaction_hash
 )
-from toshi.ethereum.utils import ecrecover
+from toshi.ethereum.utils import personal_ecrecover
 
 from toshi.log import log
 
@@ -354,8 +354,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             raise JsonRPCError(None, -32000, "Transaction already sent to node",
                                {'id': 'invalid_transaction_status', 'message': 'Transaction already sent to node'})
 
-        message = "\x19Ethereum Signed Message:\n85Cancel transaction " + tx_hash
-        if not ecrecover(message, data_decoder(signature), tx['from_address']):
+        message = "Cancel transaction " + tx_hash
+        if not personal_ecrecover(message, signature, tx['from_address']):
             raise JsonRPCError(None, -32000, "Permission Denied",
                                {'id': 'permission_denied', 'message': 'Permission Denied'})
 
