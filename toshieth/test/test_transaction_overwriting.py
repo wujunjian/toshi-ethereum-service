@@ -112,3 +112,37 @@ class TransactionOverwriteTest(EthServiceBaseTest):
         finally:
             e2.stop()
             p2.stop()
+
+    @gen_test(timeout=30)
+    @requires_full_stack(ethminer=True, parity=True, push_client=True)
+    async def test_tx_overwrite_with_using_full_balance(self, *, ethminer, parity, push_client):
+
+        balance = 10 ** 18
+        value = 8 * 10 ** 17
+        bal_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS_1, balance)
+
+        while True:
+            async with self.pool.acquire() as con:
+                row = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1", bal_hash)
+            if row['status'] == 'confirmed':
+                break
+            await asyncio.sleep(0.1)
+
+        ethminer.pause()
+
+        tx_hash = await self.send_tx(TEST_PRIVATE_KEY_1, TEST_ADDRESS_2, value)
+        async with self.pool.acquire() as con:
+            tx = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1", tx_hash)
+
+        tx_hash_2 = await self.send_tx(TEST_PRIVATE_KEY_1, TEST_ADDRESS_2, value, nonce=tx['nonce'],
+                                       gas_price=hex(int(tx['gas_price'], 16) + 10 ** 10))
+
+        while True:
+            async with self.pool.acquire() as con:
+                tx = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1", tx_hash)
+                tx2 = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1", tx_hash_2)
+            if tx['status'] != 'error':
+                continue
+            if tx2['status'] == 'unconfirmed':
+                break
+            asyncio.sleep(0.1)

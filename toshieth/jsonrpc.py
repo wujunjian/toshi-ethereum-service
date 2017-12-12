@@ -252,7 +252,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             # make sure the account has enough funds for the transaction
             network_balance, balance, _, _ = await self.get_balances(from_address)
             if existing:
-                balance = balance - (parse_int(existing['value']) + parse_int(existing['gas']) * parse_int(existing['gas_price']))
+                balance += parse_int(existing['value']) + parse_int(existing['gas']) * parse_int(existing['gas_price'])
 
             if balance < (tx.value + (tx.startgas * tx.gasprice)):
                 raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
