@@ -17,7 +17,7 @@ from .mixins import BalanceMixin
 from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
-
+from tornado.escape import json_encode
 
 class TokenHandler(DatabaseMixin, SimpleFileHandler):
 
@@ -96,8 +96,10 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
                 self.json['gas'] = self.json.pop('startgas')
             result = await ToshiEthJsonRPC(None, self.application, self.request).create_transaction_skeleton(**self.json)
         except JsonRPCError as e:
+            log.warning("/tx/skel failed: " + json_encode(e.data) + "\" -> arguments: " + json_encode(self.json) + "\"")
             raise JSONHTTPError(400, body={'errors': [e.data]})
         except TypeError:
+            log.warning("/tx/skel failed: bad arguments \"" + json_encode(self.json) + "\"")
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
 
         self.write(result)
