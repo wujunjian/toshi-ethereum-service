@@ -704,3 +704,53 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(resp.code, 200)
         result = json_decode(resp.body)
         self.assertEqual(result['gas_price'], hex(DEFAULT_GASPRICE))
+
+    @gen_test
+    @requires_full_stack
+    async def test_skeleton_address_checksum(self):
+
+        invalid_address = "0xCd2a3d9f938e13Cd947eC05ABC7fe734df8DD826"
+        only_lower_case = TEST_ADDRESS
+        valid_address = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": only_lower_case,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": valid_address,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": invalid_address,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 400)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": only_lower_case,
+            "to": FAUCET_ADDRESS,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": valid_address,
+            "to": FAUCET_ADDRESS,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": invalid_address,
+            "to": FAUCET_ADDRESS,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 400)

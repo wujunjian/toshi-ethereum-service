@@ -5,7 +5,7 @@ from toshi.analytics import AnalyticsMixin
 from toshi.database import DatabaseMixin
 from toshi.ethereum.mixin import EthereumMixin
 from toshi.redis import RedisMixin
-from toshi.ethereum.utils import data_decoder, data_encoder
+from toshi.ethereum.utils import data_decoder, data_encoder, checksum_validate_address
 from ethereum.exceptions import InvalidTransaction
 from toshi.tasks import TaskDispatcher
 from functools import partial
@@ -96,6 +96,12 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         if to_address is not None and not validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address'})
+
+        if from_address != from_address.lower() and not checksum_validate_address(from_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address Checksum'})
+
+        if to_address is not None and to_address != to_address.lower() and not checksum_validate_address(to_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address Checksum'})
 
         if value:
             value = parse_int(value)
