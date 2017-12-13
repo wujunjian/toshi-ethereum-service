@@ -247,7 +247,7 @@ class AddressHandler(DatabaseMixin, BaseHandler):
                 "gas_price": row['gas_price'],
                 "created_data": row['created'].isoformat(),
                 "confirmed_data": row['updated'].isoformat() if row['blocknumber'] else None,
-                "status": row['status'],
+                "status": row['status'] if row['status'] is not None else 'queued',
                 "data": row['data']
             })
         resp = {

@@ -148,6 +148,17 @@ class TransactionListTest(EthServiceBaseTest):
 
     @gen_test
     @requires_database
+    async def test_status_none_is_queued(self):
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO transactions (hash, from_address, to_address, nonce, value) VALUES ($1, $2, $3, $4, $5)", random_hash(), TEST_ADDRESS, random_address(), 0, hex(random.randint(1, 100) ** 16))
+
+        resp = await self.fetch("/address/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(body['transactions'][0]['status'], 'queued')
+
+    @gen_test
+    @requires_database
     async def test_bad_values(self):
         resp = await self.fetch("/address/abc")
         self.assertResponseCodeEqual(resp, 404)
