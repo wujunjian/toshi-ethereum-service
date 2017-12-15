@@ -175,7 +175,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                             # well this is awkward! may as well let things go on in this case because
                             # it means a transaction in the nonce sequence is missing
                             pass
-                    elif transaction['state'] == 'queued':
+                    elif transaction['status'] == 'queued':
                         # then this and all the following transactions are now invalid
                         previous_error = True
                         log.info("Setting tx '{}' to error due to the nonce ({}) not matching the network ({})".format(
