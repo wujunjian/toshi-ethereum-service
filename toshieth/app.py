@@ -34,6 +34,9 @@ urls = [
     # (essentially) static file access
     (r"^/tokens/?$", handlers.TokenHandler),
     (r"^/token/(?P<symbol_png>.+\.png)$", handlers.TokenHandler),
+
+    # status
+    (r"^/v1/status/?$", handlers.StatusHandler)
 ]
 
 class Application(toshi.web.Application):

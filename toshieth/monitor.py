@@ -1,10 +1,9 @@
 import asyncio
 import logging
-import time
 import tornado.httpclient
 from toshi.jsonrpc.client import JsonRPCClient
-from toshi.log import configure_logger
-from toshi.database import DatabaseMixin
+from toshi.jsonrpc.errors import JsonRPCError
+from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.tasks import TaskDispatcher
 
 from toshi.utils import parse_int
@@ -12,13 +11,16 @@ from toshi.utils import parse_int
 from .tasks import TaskListenerApplication
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
-DEFAULT_POLL_DELAY = 5
+DEFAULT_POLL_DELAY = 2
+FILTER_TIMEOUT = 300
+SANITY_CHECK_CALLBACK_TIME = 10
 
 log = logging.getLogger("toshieth.monitor")
 
 JSONRPC_ERRORS = (tornado.httpclient.HTTPError,
                   ConnectionRefusedError,  # Server isn't running
                   OSError,  # No route to host
+                  JsonRPCError,  #
                  )
 
 class BlockMonitor(TaskListenerApplication):
@@ -53,8 +55,10 @@ class BlockMonitor(TaskListenerApplication):
         if not hasattr(self, '_startup_future'):
             self._startup_future = asyncio.Future()
             self.ioloop.add_callback(self._initialise)
+            self.ioloop.add_timeout(self.ioloop.time() + SANITY_CHECK_CALLBACK_TIME, self.sanity_check)
         return self._startup_future
 
+    @log_unhandled_exceptions(logger=log)
     async def _initialise(self):
         # start the task listener
         await super().start()
@@ -88,16 +92,18 @@ class BlockMonitor(TaskListenerApplication):
 
     async def register_filters(self):
         if not self._shutdown:
-            self._new_pending_transaction_filter_id = await self.register_new_pending_transaction_filter()
+            await self.register_new_pending_transaction_filter()
         if not self._shutdown:
-            self._new_block_filter_id = await self.register_new_block_filter()
+            await self.register_new_block_filter()
 
     async def register_new_pending_transaction_filter(self):
         backoff = 0
         while not self._shutdown:
             try:
                 filter_id = await self.eth.eth_newPendingTransactionFilter()
-                log.info("Listening for new pending transactions")
+                log.info("Listening for new pending transactions with filter id: {}".format(filter_id))
+                self._new_pending_transaction_filter_id = filter_id
+                self._last_saw_new_pending_transactions = self.ioloop.time()
                 return filter_id
             except:
                 log.exception("Error registering for new pending transactions")
@@ -110,7 +116,9 @@ class BlockMonitor(TaskListenerApplication):
         while not self._shutdown:
             try:
                 filter_id = await self.eth.eth_newBlockFilter()
-                log.info("Listening for new blocks")
+                log.info("Listening for new blocks with filter id: {}".format(filter_id))
+                self._new_block_filter_id = filter_id
+                self._last_saw_new_block = self.ioloop.time()
                 return filter_id
             except:
                 log.exception("Error registering for new blocks")
@@ -126,6 +134,7 @@ class BlockMonitor(TaskListenerApplication):
 
         self._poll_schedule = self.ioloop.add_timeout(self.ioloop.time() + delay, self.filter_poll)
 
+    @log_unhandled_exceptions(logger=log)
     async def block_check(self):
 
         if self._block_checking_process is not None:
@@ -141,8 +150,8 @@ class BlockMonitor(TaskListenerApplication):
                 log.exception("Error getting block by number")
                 block = None
             if block:
-                if self._lastlog + 1800 < time.time():
-                    self._lastlog = time.time()
+                if self._lastlog + 1800 < self.ioloop.time():
+                    self._lastlog = self.ioloop.time()
                     log.info("Processing block {}".format(block['number']))
 
                 for tx in block['transactions']:
@@ -179,6 +188,7 @@ class BlockMonitor(TaskListenerApplication):
         # force block check in 10 seconds
         self.schedule_block_check(10)
 
+    @log_unhandled_exceptions(logger=log)
     async def filter_poll(self):
 
         if self._filter_poll_process is not None:
@@ -200,6 +210,14 @@ class BlockMonitor(TaskListenerApplication):
 
         if new_pending_transactions is None:
             await self.register_filters()
+        elif len(new_pending_transactions) > 0:
+            self._last_saw_new_pending_transactions = self.ioloop.time()
+        else:
+            # make sure the filter timeout period hasn't passed
+            time_since_last_pending_transaction = int(self.ioloop.time() - self._last_saw_new_pending_transactions)
+            if time_since_last_pending_transaction > FILTER_TIMEOUT:
+                log.warning("Haven't seen any new pending transactions for {} seconds".format(time_since_last_pending_transaction))
+                await self.register_new_pending_transaction_filter()
 
         # go through all the unmatched transactions that have no match
         for tx_hash, age in list(self.unmatched_transactions.items()):
@@ -243,13 +261,24 @@ class BlockMonitor(TaskListenerApplication):
                     await self.register_filters()
                     # do a block check right after as it may have taken some time to
                     # reconnect and we may have missed a block notification
-                    new_blocks = True
+                    new_blocks = [True]
                 # NOTE: this is not very smart, as if the block check is
                 # already running this will cause it to run twice. However,
                 # this is currently taken care of in the block check itself
                 # which should suffice.
                 if new_blocks and not self._shutdown:
+                    self._last_saw_new_block = self.ioloop.time()
                     self.schedule_block_check()
+                elif len(new_blocks) == 0:
+                    # make sure the filter timeout period hasn't passed
+                    time_since_last_new_block = int(self.ioloop.time() - self._last_saw_new_block)
+                    if time_since_last_new_block > FILTER_TIMEOUT:
+                        log.warning("Haven't seen any new blocks for {} seconds".format(time_since_last_new_block))
+                        await self.register_new_block_filter()
+                        # also force a block check just incase
+                        self.schedule_block_check()
+            else:
+                log.warning("no filter id for new blocks")
 
         self._filter_poll_process.set_result(True)
         self._filter_poll_process = None
@@ -274,6 +303,7 @@ class BlockMonitor(TaskListenerApplication):
 
         self._startup_future = None
 
+    @log_unhandled_exceptions(logger=log)
     async def process_transaction(self, transaction):
 
         to_address = transaction['to']
@@ -351,6 +381,28 @@ class BlockMonitor(TaskListenerApplication):
                     db_tx['transaction_id'],
                     'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
 
+    @log_unhandled_exceptions(logger=log)
+    async def sanity_check(self):
+        if self._shutdown:
+            return
+        # check that filter ids are set to something
+        if self._new_pending_transaction_filter_id is None:
+            await self.register_new_pending_transaction_filter()
+        if self._new_block_filter_id is None:
+            await self.register_new_block_filter()
+        # check that poll callback is set and not in the past
+        if self._poll_schedule is None:
+            log.warning("Filter poll schedule is None!")
+            self.schedule_filter_poll()
+        elif self._filter_poll_process is not None:
+            pass
+        else:
+            if self._poll_schedule._when < self._poll_schedule._loop.time():
+                log.warning("Filter poll schedule is in the past!")
+                self.schedule_filter_poll()
+        self.ioloop.add_timeout(self.ioloop.time() + SANITY_CHECK_CALLBACK_TIME, self.sanity_check)
+        with (await self.task_listener.get_redis_connection()) as con:
+            await con.setex("monitor_sanity_check_ok", SANITY_CHECK_CALLBACK_TIME * 2, "OK")
 
 if __name__ == '__main__':
 

@@ -408,3 +408,41 @@ class MonitorErrorsTest(FaucetMixin, EthServiceBaseTest):
                 self.assertIsInstance(message, SofaPayment)
                 self.assertEqual(message['txHash'], tx_hash)
                 self.assertEqual(message['status'], status)
+
+    @gen_test(timeout=30)
+    @requires_full_stack(block_monitor='monitor')
+    async def test_filter_timeout(self, *, monitor):
+        # give some time for the monitor to start up
+        await asyncio.sleep(0.3)
+
+        pending_filter_id = monitor._new_pending_transaction_filter_id = "0x1111111111"
+        monitor._new_block_filter_id = "0x1111111111111"
+        await asyncio.sleep(0.3)
+        last_block_number = monitor.last_block_number
+        monitor._last_saw_new_block -= 300
+        while monitor.last_block_number == last_block_number:
+            await asyncio.sleep(0.1)
+
+        monitor._last_saw_new_pending_transactions -= 300
+        while monitor._new_pending_transaction_filter_id == pending_filter_id:
+            await asyncio.sleep(0.1)
+
+    @gen_test(timeout=30)
+    @requires_full_stack(block_monitor='monitor')
+    async def test_sanity_check(self, *, monitor):
+        # give some time for the monitor to start up
+        await asyncio.sleep(0.3)
+
+        resp = await self.fetch("/status")
+        self.assertEqual(resp.code, 200)
+        self.assertNotEqual(resp.body.decode('utf-8'), 'OK')
+
+        monitor._new_block_filter_id = None
+        last_block_number = monitor.last_block_number
+        while monitor.last_block_number == last_block_number:
+            await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/status")
+        self.assertEqual(resp.code, 200)
+
+        self.assertEqual(resp.body.decode('utf-8'), 'OK')

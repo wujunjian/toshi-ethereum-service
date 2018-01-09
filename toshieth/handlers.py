@@ -374,6 +374,15 @@ class PNDeregistrationHandler(RequestVerificationMixin, AnalyticsMixin, Database
         self.set_status(204)
         self.track(toshi_id, "Deregistered ETH notifications")
 
+class StatusHandler(RedisMixin, BaseHandler):
+
+    def get(self):
+        status = self.redis.get("monitor_sanity_check_ok")
+        if status == "OK":
+            self.write("OK")
+        else:
+            self.write("MONITOR SANITY CHECK FAILED")
+
 class LegacyRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
     """backwards compatibility for old pn registration"""
 
