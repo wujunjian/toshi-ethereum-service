@@ -285,22 +285,26 @@ class TransactionQueueTest(EthServiceBaseTest):
                 await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",
                                 'gcm', "abc", addr, addr)
 
-        # send a tx from outside the system first which wont be seen by
-        # the system until after the transactions generated in the next block
-        tx = await self.get_tx_skel(TEST_PRIVATE_KEY_1, FAUCET_ADDRESS, val - default_fees)
+        tx = await self.get_tx_skel(TEST_PRIVATE_KEY_1, FAUCET_ADDRESS, val - (default_fees * 2), gas_price=DEFAULT_GASPRICE * 2, nonce=0x100000)
         tx = sign_transaction(tx, TEST_PRIVATE_KEY_1)
-        await rpcclient.eth_sendRawTransaction(tx)
 
         # generate internal transactions
         for i in range(len(addresses) * 2):
             val = val - default_fees
             addr1, pk1 = addresses[0]
             addr2, pk2 = addresses[1]
+            print(i, val, addr1, addr2)
             # send funds
             tx_hash = await self.send_tx(pk1, addr2, val)
             txs.append(tx_hash)
             # swap all the variables
             addresses = addresses[1:] + [addresses[0]]
+            await asyncio.sleep(0.01)
+
+        # send a tx from outside the system first which wont be seen by
+        # the system until after the transactions generated in the next block
+        resp = await rpcclient.eth_sendRawTransaction(tx)
+        print(resp)
 
         # make sure we got pns for all
         for i in range(len(addresses) * 2):
