@@ -152,7 +152,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 # and the contract has no default method implemented
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Unable to estimate gas for contract call'})
             # buffer gas estimate by 20%
-            gas *= 1.2
+            gas = int(gas * 1.2)
         else:
             gas = parse_int(gas)
             if gas is None:
