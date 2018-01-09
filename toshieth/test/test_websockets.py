@@ -5,12 +5,11 @@ import random
 from datetime import datetime
 from toshi.test.base import ToshiWebSocketJsonRPCClient
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
-from toshieth.app import urls
 from tornado.testing import gen_test
 from toshi.test.ethereum.faucet import FaucetMixin
 from toshi.ethereum.tx import sign_transaction, create_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE, encode_transaction
 from toshi.ethereum.utils import data_encoder
-from toshi.sofa import SofaPayment, parse_sofa_message
+from toshi.sofa import parse_sofa_message
 from toshi.jsonrpc.errors import JsonRPCError
 
 from toshieth.test.test_transaction import (
@@ -134,6 +133,8 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         val2 = int(val / 2)
 
         await self.faucet(TEST_ID_ADDRESS, val)
+        # wait for the block monitor to catch up
+        await asyncio.sleep(0.1)
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
 
