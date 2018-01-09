@@ -705,7 +705,7 @@ class TransactionTest(EthServiceBaseTest):
         result = json_decode(resp.body)
         self.assertEqual(result['gas_price'], hex(DEFAULT_GASPRICE))
 
-    @gen_test
+    @gen_test(timeout=10)
     @requires_full_stack
     async def test_skeleton_address_checksum(self):
 
