@@ -754,3 +754,26 @@ class TransactionTest(EthServiceBaseTest):
             "value": 10 ** 10
         })
         self.assertResponseCodeEqual(resp, 400)
+
+    @gen_test(timeout=10)
+    @requires_full_stack
+    async def test_gas_estimate_buffer(self):
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10
+        })
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(int(body['gas'], 16), 21000,
+                         "gas price should not be buffered for standard transactions")
+
+        resp = await self.fetch("/tx/skel", method="POST", body={
+            "from": FAUCET_ADDRESS,
+            "to": TEST_ADDRESS,
+            "value": 10 ** 10,
+            "data": "0x1"
+        })
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(int(body['gas'], 16), int(21068 * 1.2))

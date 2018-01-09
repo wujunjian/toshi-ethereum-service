@@ -151,8 +151,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 # this can occur if sending a transaction to a contract that doesn't match a valid method
                 # and the contract has no default method implemented
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Unable to estimate gas for contract call'})
-            # buffer gas estimate by 20%
-            gas = int(gas * 1.2)
+            # if data is present, buffer gas estimate by 20%
+            if len(data) > 0:
+                gas = int(gas * 1.2)
         else:
             gas = parse_int(gas)
             if gas is None:
