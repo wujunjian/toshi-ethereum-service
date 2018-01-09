@@ -1,6 +1,8 @@
 machine:
+  pre:
+    - cd /opt/circleci/.pyenv; git pull
   python:
-    version: 3.6.1
+    version: 3.6.4
   node:
     version: 6.7.0
   environment:
@@ -19,6 +21,7 @@ dependencies:
     - if [[ ! -d ~/.ethash ]]; then ethminer -D 0; fi
     - wget http://parity-downloads-mirror.parity.io/v1.7.11/x86_64-unknown-linux-gnu/parity_1.7.11_amd64.deb
     - sudo dpkg -i parity_1.7.11_amd64.deb
+    - python -m pip install --upgrade setuptools
     - pip install -r requirements-testing.txt
     - ./configure_environment.sh
     - pip install --upgrade -r requirements.txt
