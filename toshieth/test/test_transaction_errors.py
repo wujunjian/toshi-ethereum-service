@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 
 from tornado.testing import gen_test
@@ -13,7 +12,7 @@ from toshieth.test.test_transaction import (
     TEST_PRIVATE_KEY_2 as TEST_WALLET_KEY,
     TEST_ADDRESS_2 as TEST_WALLET_ADDRESS
 )
-from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
+from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY
 from toshieth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
 class TestTransactionOverwrites(FaucetMixin, EthServiceBaseTest):

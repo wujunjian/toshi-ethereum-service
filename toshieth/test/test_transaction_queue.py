@@ -8,7 +8,7 @@ from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS, Parit
 from toshi.test.ethereum.ethminer import EthMiner
 from toshi.test.ethereum.faucet import FaucetMixin
 from toshi.ethereum.utils import data_decoder, data_encoder, private_key_to_address
-from toshi.ethereum.tx import decode_transaction, sign_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from toshi.ethereum.tx import sign_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
 from toshi.utils import parse_int
 from toshi.jsonrpc.client import JsonRPCClient
 
@@ -91,6 +91,8 @@ class TransactionQueueTest(EthServiceBaseTest):
             row = await con.fetchrow("SELECT * FROM transactions WHERE from_address = $1", TEST_ADDRESS_1)
         self.assertIsNotNone(row)
         self.assertEqual(row['status'], 'queued')
+        self.assertEqual(int(row['gas'], 16), DEFAULT_STARTGAS)
+        self.assertEqual(int(row['gas_price'], 16), DEFAULT_GASPRICE)
 
         # make sure balance adjusts for queued items
         resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS_1))

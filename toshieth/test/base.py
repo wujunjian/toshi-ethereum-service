@@ -8,7 +8,7 @@ from toshi.test.base import AsyncHandlerTest
 from toshieth.app import Application, urls
 from tornado.escape import json_decode
 
-from toshi.ethereum.utils import private_key_to_address, data_encoder
+from toshi.ethereum.utils import private_key_to_address
 from toshi.ethereum.tx import sign_transaction
 from toshi.ethereum.utils import prepare_ethereum_jsonrpc_client
 

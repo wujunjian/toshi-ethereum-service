@@ -107,7 +107,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         addr = '0x39bf9e501e61440b4b268d7b2e9aa2458dd201bb'
         val = 761751855997712
 
-        await self.faucet(TEST_ID_ADDRESS, val * 10)
+        await self.wait_on_tx_confirmation(await self.faucet(TEST_ID_ADDRESS, val * 10))
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
 
@@ -132,9 +132,7 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         val = 8761751855997712
         val2 = int(val / 2)
 
-        await self.faucet(TEST_ID_ADDRESS, val)
-        # wait for the block monitor to catch up
-        await asyncio.sleep(0.1)
+        await self.wait_on_tx_confirmation(await self.faucet(TEST_ID_ADDRESS, val))
 
         ws_con = await self.websocket_connect(TEST_ID_KEY)
 
