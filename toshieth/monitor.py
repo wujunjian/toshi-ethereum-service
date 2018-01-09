@@ -401,8 +401,7 @@ class BlockMonitor(TaskListenerApplication):
                 log.warning("Filter poll schedule is in the past!")
                 self.schedule_filter_poll()
         self.ioloop.add_timeout(self.ioloop.time() + SANITY_CHECK_CALLBACK_TIME, self.sanity_check)
-        with (await self.task_listener.get_redis_connection()) as con:
-            await con.setex("monitor_sanity_check_ok", SANITY_CHECK_CALLBACK_TIME * 2, "OK")
+        await self.task_listener.aio_redis_connection_pool.setex("monitor_sanity_check_ok", SANITY_CHECK_CALLBACK_TIME * 2, "OK")
 
 if __name__ == '__main__':
 
