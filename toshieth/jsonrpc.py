@@ -251,8 +251,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             # check for transaction overwriting
             async with self.db:
                 existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
-                                                  "from_address = $1 AND nonce = $2 AND status != $3",
-                                                  from_address, tx.nonce, 'error')
+                                                  "from_address = $1 AND nonce = $2 AND "
+                                                  "(status != 'error' or status is NULL)",
+                                                  from_address, tx.nonce)
 
             # disallow transaction overwriting when the gas is lower or the transaction is confirmed
             if existing and (parse_int(existing['gas_price']) >= tx.gasprice or existing['status'] == 'confirmed'):
