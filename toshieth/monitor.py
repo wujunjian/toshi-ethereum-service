@@ -12,7 +12,10 @@ from .tasks import TaskListenerApplication
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 1
-FILTER_TIMEOUT = 60
+# Parity timeout is 60 seconds, this is a bit short for assuming
+# the filter has died as new blocks could take longer so using
+# 120 seconds as 1 minute of missing filter info is acceptable
+FILTER_TIMEOUT = 120
 SANITY_CHECK_CALLBACK_TIME = 10
 
 log = logging.getLogger("toshieth.monitor")
