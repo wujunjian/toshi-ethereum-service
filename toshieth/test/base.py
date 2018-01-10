@@ -41,7 +41,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
                     f = interval_check_callback()
                     if asyncio.iscoroutine(f):
                         await f
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.1)
             else:
                 if check_db:
                     while True:
@@ -49,7 +49,14 @@ class EthServiceBaseTest(AsyncHandlerTest):
                             row = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND status = 'confirmed'", tx_hash)
                         if row:
                             break
-                return body
+                        await asyncio.sleep(0.01)
+                # make sure the last_blocknumber has been saved to the db before returning
+                while True:
+                    async with self.pool.acquire() as con:
+                        row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
+                    if row and row['blocknumber'] >= int(body['blockNumber'], 16):
+                        return body
+                    await asyncio.sleep(0.01)
 
     async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None, data=None):
         from_addr = private_key_to_address(from_key)

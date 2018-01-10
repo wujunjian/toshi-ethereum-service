@@ -81,10 +81,7 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(parse_int(data['unconfirmed_balance']), val)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_transaction_with_separate_sig(self):
 
         body = {
@@ -126,10 +123,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_signed_transaction_with_separate_sig(self):
 
         body = {
@@ -168,10 +162,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_multiple_transactions(self):
 
         body = {
@@ -263,10 +254,7 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(resp.code, 404)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_transactions_with_known_sender_toshi_id(self):
 
         body = {
@@ -308,10 +296,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_transactions_with_known_sender_toshi_id_but_invalid_signature(self):
 
         body = {
@@ -343,10 +328,7 @@ class TransactionTest(EthServiceBaseTest):
         self.assertEqual(len(error['errors']), 1)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_transaction_with_data(self):
 
         body = {
@@ -378,10 +360,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_transaction_with_0_value_and_data(self):
 
         body = {
@@ -413,10 +392,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_transaction_with_no_value_and_data(self):
 
         body = {
@@ -447,10 +423,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_transaction_with_large_data(self):
 
         body = {
@@ -510,10 +483,7 @@ class TransactionTest(EthServiceBaseTest):
         await self.wait_on_tx_confirmation(tx_hash)
 
     @gen_test(timeout=30)
-    @requires_database
-    @requires_redis
-    @requires_task_manager
-    @requires_parity
+    @requires_full_stack
     async def test_create_and_send_transaction_with_custom_values(self):
 
         # try creating a skel that is invalid
