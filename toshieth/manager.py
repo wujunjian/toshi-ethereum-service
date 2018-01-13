@@ -446,15 +446,16 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             resp = await client.fetch("https://ethgasstation.info/json/ethgasAPI.json")
             rval = json_decode(resp.body)
 
+            standard_wei = None
+            safelow_wei = None
+
             if 'average' not in rval:
                 log.error("Unexpected results from EthGasStation: {}".format(resp.body))
             elif not isinstance(rval['average'], float):
                 log.error("Unexpected 'average' gas price returned by EthGasStation: {}".format(rval['average']))
             else:
                 gwei_x10 = int(rval['average'])
-                wei = gwei_x10 * 100000000
-
-                self.redis.set('gas_station_standard_gas_price', hex(wei))
+                standard_wei = gwei_x10 * 100000000
 
             if 'safeLow' not in rval:
                 log.error("Unexpected results from EthGasStation: {}".format(resp.body))
@@ -462,9 +463,15 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 log.error("Unexpected 'safeLow' gas price returned by EthGasStation: {}".format(rval['safeLow']))
             else:
                 gwei_x10 = int(rval['safeLow'])
-                wei = gwei_x10 * 100000000
+                safelow_wei = gwei_x10 * 100000000
 
-                self.redis.set('gas_station_safelow_gas_price', hex(wei))
+            # sanity check the values, if safelow is greater than standard
+            # then use the safe low as standard + an extra gwei of padding
+            if safelow_wei > standard_wei:
+                standard_wei = safelow_wei + 1000000000
+
+            self.redis.mset({'gas_station_safelow_gas_price': hex(safelow_wei),
+                             'gas_station_standard_gas_price': hex(standard_wei)})
 
         except:
             log.exception("Error updating default gas price from EthGasStation")
