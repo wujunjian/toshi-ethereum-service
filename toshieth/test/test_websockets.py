@@ -70,6 +70,72 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         await self.faucet(TEST_WALLET_ADDRESS, val)
 
         result = await ws_con.read(timeout=1)
+        # handle case where confirmed comes in before the unsibscribe
+        if result:
+            payment = parse_sofa_message(result['params']['message'])
+            self.assertEqual(payment['txHash'], tx_hash)
+            self.assertEqual(payment['status'], 'confirmed')
+            result = await ws_con.read(timeout=1)
+
+        self.assertIsNone(result)
+
+    @gen_test(timeout=60)
+    @requires_full_stack
+    async def test_subscriptions_without_signing(self):
+
+        val = 761751855997712
+
+        ws_con = await self.websocket_connect(None)
+        await ws_con.call("subscribe", [TEST_ID_ADDRESS])
+
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow("SELECT COUNT(*) FROM notification_registrations WHERE eth_address = $1", TEST_ID_ADDRESS)
+        self.assertEqual(row['count'], 1)
+
+        tx_hash = await self.faucet(TEST_ID_ADDRESS, val)
+
+        result = await ws_con.read()
+        self.assertIsNotNone(result)
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
+        ws_con.con.close()
+
+        ws_con = await self.websocket_connect(None)
+
+        await self.faucet(TEST_ID_ADDRESS, val)
+
+        # make sure we don't still get any notifications
+        result = await ws_con.read(timeout=1)
+        self.assertIsNone(result)
+
+        # make sure subscriptions don't cross over when no toshi id is used
+        await ws_con.call("subscribe", [TEST_WALLET_ADDRESS])
+        ws_con2 = await self.websocket_connect(None)
+
+        tx_hash = await self.faucet(TEST_WALLET_ADDRESS, val)
+
+        result = await ws_con.read()
+        self.assertIsNotNone(result)
+        payment = parse_sofa_message(result['params']['message'])
+        self.assertEqual(payment['txHash'], tx_hash)
+
+        # check 2nd connection has no notifications
+        result = await ws_con2.read(timeout=1)
+        self.assertIsNone(result)
+
+        # make sure unsubscribe works
+        await ws_con.call("unsubscribe", [TEST_WALLET_ADDRESS])
+
+        await self.faucet(TEST_WALLET_ADDRESS, val)
+
+        result = await ws_con.read(timeout=1)
+        # handle case where confirmed comes in before the unsibscribe
+        if result:
+            payment = parse_sofa_message(result['params']['message'])
+            self.assertEqual(payment['txHash'], tx_hash)
+            self.assertEqual(payment['status'], 'confirmed')
+            result = await ws_con.read(timeout=1)
+
         self.assertIsNone(result)
 
     @gen_test(timeout=60)

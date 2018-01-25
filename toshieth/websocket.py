@@ -141,7 +141,11 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
     @tornado.web.asynchronous
     def get(self, *args, **kwargs):
 
-        self.user_toshi_id = self.verify_request()
+        if self.is_request_signed():
+            self.user_toshi_id = self.verify_request()
+        else:
+            # assign a fake toshi_id
+            self.user_toshi_id = "0x00000000000000000000{}".format(os.urandom(10).hex())
         self.subscription_ids = set()
         self.filter_ids = set()
         return super().get(*args, **kwargs)
