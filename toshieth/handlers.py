@@ -18,6 +18,7 @@ from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
 from tornado.escape import json_encode
+from tornado.web import HTTPError
 
 class TokenHandler(DatabaseMixin, SimpleFileHandler):
 

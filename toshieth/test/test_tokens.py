@@ -62,3 +62,6 @@ class TokenHandlerTest(AsyncHandlerTest):
             self.assertEqual(resp.headers.get('Content-Type'),
                              'image/png')
             self.assertEqual(resp.body, image)
+
+        resp = await self.fetch("/token/AAA.png")
+        self.assertResponseCodeEqual(resp, 404)
