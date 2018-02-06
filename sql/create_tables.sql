@@ -62,7 +62,29 @@ CREATE TABLE IF NOT EXISTS tokens (
     decimals INTEGER, -- currency decimal points
     icon BYTEA, -- png data
     hash VARCHAR,
+    format VARCHAR,
     last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
+);
+
+CREATE TABLE IF NOT EXISTS token_balances (
+    contract_address VARCHAR,
+    eth_address VARCHAR,
+    value VARCHAR,
+
+    PRIMARY KEY (contract_address, eth_address)
+);
+
+CREATE TABLE IF NOT EXISTS token_transactions (
+    transaction_id BIGSERIAL PRIMARY KEY,
+    contract_address VARCHAR NOT NULL,
+    from_address VARCHAR NOT NULL,
+    to_address VARCHAR NOT NULL,
+    value VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS token_registrations (
+    eth_address VARCHAR PRIMARY KEY,
+    last_queried TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
 CREATE TABLE IF NOT EXISTS from_address_gas_price_whitelist (
@@ -86,5 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_filter_registrations_contract_address_topic ON fi
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON filter_registrations (filter_id, registration_id);
 
 CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
+CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address ON token_balances (eth_address);
+CREATE INDEX IF NOT EXISTS idx_token_registrations_last_queried ON token_registrations (last_queried ASC);
 
-UPDATE database_version SET version_number = 9;
+UPDATE database_version SET version_number = 10;

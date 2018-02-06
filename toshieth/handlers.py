@@ -20,45 +20,57 @@ from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
 from tornado.escape import json_encode
 from tornado.web import HTTPError
 
-class TokenHandler(DatabaseMixin, SimpleFileHandler):
+class TokenIconHandler(DatabaseMixin, SimpleFileHandler):
 
-    async def get(self, symbol_png=None):
+    async def get(self, symbol, format):
 
-        if symbol_png:
-            # remove .png suffix required by URL regex
-            symbol = symbol_png[:-4]
-
-            async with self.db:
-                row = await self.db.fetchrow(
-                    "SELECT * FROM tokens WHERE symbol = $1",
-                    symbol
-                )
-
-            if row is None:
-                raise HTTPError(404)
-
-            await self.handle_file_response(
-                data=row['icon'],
-                content_type="image/png",
-                etag=row['hash'],
-                last_modified=row['last_modified']
+        async with self.db:
+            row = await self.db.fetchrow(
+                "SELECT * FROM tokens WHERE symbol = $1 AND format = lower($2)",
+                symbol, format
             )
 
-        else:
-            # list available tokens
-            async with self.db:
-                rows = await self.db.fetch(
-                    "SELECT symbol, name, decimals FROM tokens "
-                    "ORDER BY symbol ASC"
-                )
+        if row is None:
+            raise HTTPError(404)
 
-            tokens = [dict(symbol=r['symbol'],
-                           name=r['name'],
-                           decimals=r['decimals'],
-                           icon_url="/token/{}.png".format(r['symbol']))
-                      for r in rows]
-            self.write({"tokens": tokens})
+        await self.handle_file_response(
+            data=row['icon'],
+            content_type="image/png",
+            etag=row['hash'],
+            last_modified=row['last_modified']
+        )
 
+
+class TokenHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+
+    async def get(self, address):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        try:
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_tokens(address)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        self.write({"tokens": result})
+
+
+class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+
+    async def get(self, address, contract_address=None):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        try:
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_collectibles(address, contract_address)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        self.write({"collectibles": result})
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
@@ -279,6 +291,7 @@ class GasPriceHandler(RedisMixin, BaseHandler):
         self.write({
             "gas_price": gas_station_gas_price
         })
+
 
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 

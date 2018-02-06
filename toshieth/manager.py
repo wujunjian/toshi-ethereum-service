@@ -1,9 +1,10 @@
 import asyncio
 import logging
-import re
 
 from tornado.httpclient import AsyncHTTPClient
-from tornado.escape import json_decode
+from tornado.escape import json_decode, json_encode
+from tornado.platform.asyncio import to_asyncio_future
+
 from toshi.database import DatabaseMixin
 from toshi.redis import RedisMixin
 from toshieth.mixins import BalanceMixin
@@ -296,6 +297,13 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             if tx is None or tx['status'] == status:
                 return
 
+            token_tx = await self.db.fetchrow(
+                "SELECT tok.symbol, tok.name, tok.decimals, tx.contract_address, tx.value, tx.from_address, tx.to_address "
+                "FROM token_transactions tx "
+                "JOIN tokens tok "
+                "ON tok.address = tx.contract_address "
+                "WHERE tx.transaction_id = $1", transaction_id)
+
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
             if tx['status'] == 'confirmed':
                 log.warning("Trying to update status of tx {} to {}, but tx is already confirmed".format(tx['hash'], status))
@@ -328,17 +336,38 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # there's already been a tx for this so no need to send another
             return
 
-        payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
-                              fromAddress=tx['from_address'], toAddress=tx['to_address'],
-                              networkId=self.application.config['ethereum']['network_id'])
-        message = payment.render()
+        # check if this is an erc20 transaction, if so use those values
+        if token_tx:
+            from_address = token_tx['from_address']
+            to_address = token_tx['to_address']
+            if status == 'confirmed':
+                self.tasks.update_token_cache(token_tx['contract_address'],
+                                              from_address,
+                                              to_address)
+            data = {
+                "txHash": tx['hash'],
+                "fromAddress": from_address,
+                "toAddress": to_address,
+                "status": status,
+                "value": token_tx['value'],
+                "contractAddress": token_tx['contract_address']
+            }
+            message = "SOFA::Payment:" + json_encode(data)
+
+        else:
+            from_address = tx['from_address']
+            to_address = tx['to_address']
+            payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
+                                  fromAddress=from_address, toAddress=to_address,
+                                  networkId=self.application.config['ethereum']['network_id'])
+            message = payment.render()
 
         # figure out what addresses need pns
         # from address always needs a pn
-        self.tasks.send_notification(tx['from_address'], message)
+        self.tasks.send_notification(from_address, message)
 
         # no need to check to_address for contract deployments
-        if tx['to_address'] == "0x":
+        if to_address == "0x":
             # TODO: update any notification registrations to be marked as a contract
             return
 
@@ -348,13 +377,13 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # we only need to send the error to the sender, thus we
             # only add 'to' if the new status is not an error
             if status != 'error':
-                self.tasks.send_notification(tx['to_address'], message)
+                self.tasks.send_notification(to_address, message)
         else:
-            self.tasks.send_notification(tx['to_address'], message)
+            self.tasks.send_notification(to_address, message)
 
         # trigger a processing of the to_address's queue incase it has
         # things waiting on this transaction
-        self.tasks.process_transaction_queue(tx['to_address'])
+        self.tasks.process_transaction_queue(to_address)
 
     async def sanity_check(self, frequency):
         async with self.db:
@@ -478,6 +507,49 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
         if frequency:
             self.tasks.update_default_gas_price(frequency, delay=frequency)
+
+    async def update_token_cache(self, contract_address, *eth_addresses):
+
+        if len(eth_addresses) == 0:
+            return
+
+        async with self.db:
+            if contract_address == "*":
+                tokens = await self.db.fetch("SELECT * FROM tokens")
+            else:
+                token = await self.db.fetchrow("SELECT * FROM tokens WHERE address = $1", contract_address)
+                tokens = [token]
+
+        futures = []
+        for token in tokens:
+            for address in eth_addresses:
+                # data for `balanceOf(address)`
+                data = "0x70a08231000000000000000000000000" + address[2:]
+                f = to_asyncio_future(self.eth.eth_call(to_address=token['address'], data=data))
+                futures.append((token['address'], address, f))
+
+        # wait for all the jsonrpc calls to finish
+        await asyncio.gather(*[f[2] for f in futures], return_exceptions=True)
+        bulk_update = []
+        bulk_delete = []
+        for contract_address, eth_address, f in futures:
+            try:
+                value = f.result()
+                if value == "0x0000000000000000000000000000000000000000000000000000000000000000":
+                    bulk_delete.append((contract_address, eth_address))
+                else:
+                    bulk_update.append((contract_address, eth_address, value))
+            except:
+                log.exception("WARNING: failed to update token cache of '{}' for address: {}".format(contract_address, eth_address))
+                continue
+        async with self.db:
+            await self.db.executemany("INSERT INTO token_balances (contract_address, eth_address, value) VALUES ($1, $2, $3) "
+                                      "ON CONFLICT (contract_address, eth_address) DO UPDATE set value = EXCLUDED.value",
+                                      bulk_update)
+            await self.db.executemany("DELETE FROM token_balances WHERE contract_address = $1 AND eth_address = $2",
+                                      bulk_delete)
+            await self.db.commit()
+
 
 class TaskManager(TaskListenerApplication):
 

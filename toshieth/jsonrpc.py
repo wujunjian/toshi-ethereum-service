@@ -1,3 +1,4 @@
+import asyncio
 import binascii
 from toshi.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
 from toshi.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
@@ -23,7 +24,7 @@ from toshi.ethereum.utils import personal_ecrecover
 from toshi.log import log
 
 from .mixins import BalanceMixin
-from .utils import RedisLock, database_transaction_to_rlp_transaction
+from .utils import RedisLock, RedisLockException, database_transaction_to_rlp_transaction
 
 class JsonRPCInsufficientFundsError(JsonRPCError):
     def __init__(self, *, request=None, data=None):
@@ -371,3 +372,47 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         log.info("Setting tx '{}' to error due to user cancelation".format(tx['hash']))
         self.tasks.update_transaction(tx['transaction_id'], 'error')
+
+    async def get_tokens(self, address):
+        # get token balances
+        while True:
+            async with self.db:
+                result = await self.db.execute("UPDATE token_registrations SET last_queried = (now() AT TIME ZONE 'utc') WHERE eth_address = $1", address)
+                await self.db.commit()
+            registered = result == "UPDATE 1"
+
+            if not registered:
+                try:
+                    with RedisLock(self.redis, "token_balance_update:{}".format(address)):
+                        try:
+                            await self.tasks.update_token_cache("*", address)
+                        except:
+                            log.exception("Error updating token cache")
+                            raise
+                        async with self.db:
+                            await self.db.execute("INSERT INTO token_registrations (eth_address) VALUES ($1)", address)
+                            await self.db.commit()
+                    break
+                except RedisLockException:
+                    # wait until the previous task is done and try again
+                    await asyncio.sleep(0.1)
+                    continue
+            else:
+                break
+
+        async with self.db:
+            balances = await self.db.fetch(
+                "SELECT t.symbol, t.name, t.decimals, b.value, b.contract_address, t.format "
+                "FROM token_balances b "
+                "JOIN tokens t "
+                "ON t.address = b.contract_address "
+                "WHERE eth_address = $1 ORDER BY value DESC", address)
+
+        tokens = []
+        for b in balances:
+            details = dict(b)
+            details['icon'] = "{}://{}/token/{}.{}".format(
+                self.request.protocol, self.request.host, b['symbol'], b['format'])
+            tokens.append(details)
+
+        return tokens

@@ -365,10 +365,46 @@ class BlockMonitor(TaskListenerApplication):
                         'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
                     return
 
+            # check if there is input, and if the input reprensents an erc20
+            # `transfer(address,uint256)` or `transferFrom(address,address,uint256)`
+            # method signature
+            if transaction['input'] and \
+               ((transaction['input'].startswith("0xa9059cbb") and len(transaction['input']) == 138) or \
+                (transaction['input'].startswith("0x23b872dd") and len(transaction['input']) == 202)):
+                # check if the token is a known erc20 token
+                erc20_token = await con.fetchrow("SELECT * FROM tokens WHERE address = $1",
+                                                 to_address)
+                if erc20_token:
+
+                    if transaction['input'].startswith("0x23b872dd"):
+                        # `transferFrom(address,address,uint256)` token sender is
+                        # the first argument and token receiver is the second
+                        # argument in the input data
+
+                        # NOTE: not sure what is really sensible here, `transferFrom`
+                        # is triggered by having someone give someone else permission
+                        # to transfer their tokens. So the tokens are coming from an
+                        # address that is different to the address of the transaction
+                        # sender. This is not something we have a real use case for
+                        # inside toshi yet, so leaving this behaviour as is for now.
+                        # future implementations might be that we have a 3rd "interested"
+                        # party to send notifications to
+
+                        interested_from_address = "0x" + transaction['input'][34:74]
+                        interested_to_address = "0x" + transaction['input'][98:138]
+                    else:
+                        # `transfer(address,uint256)` token receiver is the first argument in the input data
+                        interested_from_address = from_address
+                        interested_to_address = "0x" + transaction['input'][34:74]
+            else:
+                erc20_token = False
+                interested_to_address = to_address
+                interested_from_address = from_address
+
             # find out if there is anyone interested in this transaction
             is_interesting = await con.fetchrow("SELECT 1 FROM notification_registrations "
                                                 "WHERE eth_address = $1 OR eth_address = $2",
-                                                to_address, from_address)
+                                                interested_to_address, interested_from_address)
             if is_interesting:
                 # if so, add it to the database and trigger an update
                 # add tx to database
@@ -382,6 +418,17 @@ class BlockMonitor(TaskListenerApplication):
                     transaction['hash'], from_address, to_address, parse_int(transaction['nonce']),
                     hex(parse_int(transaction['value'])), hex(parse_int(transaction['gas'])), hex(parse_int(transaction['gasPrice'])),
                     transaction['input'])
+
+                if erc20_token:
+                    # token transfer value is the final uint256 value in the transaction input data
+                    token_value = int(transaction['input'][-64:], 16)
+                    await con.execute(
+                        "INSERT INTO token_transactions "
+                        "(transaction_id, contract_address, from_address, to_address, value) "
+                        "VALUES ($1, $2, $3, $4, $5)",
+                        db_tx['transaction_id'], erc20_token['address'],
+                        interested_from_address, interested_to_address, hex(token_value))
+
                 self.tasks.update_transaction(
                     db_tx['transaction_id'],
                     'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')

@@ -24,6 +24,9 @@ urls = [
     (r"^/v1/(apn|gcm)/register/?$", handlers.PNRegistrationHandler),
     (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
     (r"^/v1/ws/?$", websocket.WebsocketHandler),
+    (r"^/v1/tokens/(0x[0-9a-fA-F]{40})/?$", handlers.TokenHandler),
+    (r"^/v1/collectibles/(0x[0-9a-fA-F]{40})/?$", handlers.CollectiblesHandler),
+    (r"^/v1/collectibles/(0x[0-9a-fA-F]{40})/(0x[0-9a-fA-F]{40})/?$", handlers.CollectiblesHandler),
 
     (r"^/v1/gasprice/?$", handlers.GasPriceHandler),
 
@@ -32,8 +35,7 @@ urls = [
     (r"^/v1/deregister/?$", handlers.LegacyDeregistrationHandler),
 
     # (essentially) static file access
-    (r"^/tokens/?$", handlers.TokenHandler),
-    (r"^/token/(?P<symbol_png>.+\.png)$", handlers.TokenHandler),
+    (r"^/token/(?P<symbol>.+)\.(?P<format>.+)$", handlers.TokenIconHandler),
 
     # status
     (r"^/v1/status/?$", handlers.StatusHandler)
