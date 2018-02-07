@@ -410,9 +410,48 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         tokens = []
         for b in balances:
-            details = dict(b)
-            details['icon'] = "{}://{}/token/{}.{}".format(
-                self.request.protocol, self.request.host, b['symbol'], b['format'])
+            details = {
+                "symbol": b['symbol'],
+                "name": b['name'],
+                "decimals": b['decimals'],
+                "value": b['value'],
+                "contract_address": b['contract_address'],
+                "icon": "{}://{}/token/{}.{}".format(
+                    self.request.protocol, self.request.host, b['symbol'], b['format'])
+            }
             tokens.append(details)
 
         return tokens
+
+    async def get_collectibles(self, address, contract_address=None):
+
+        if contract_address is None:
+            async with self.db:
+                collectibles = await self.db.fetch(
+                    "SELECT t.contract_address, COUNT(t.token_id) AS value, c.name, c.icon "
+                    "FROM collectible_tokens t "
+                    "JOIN collectibles c ON c.contract_address = t.contract_address "
+                    "WHERE t.owner_address = $1 "
+                    "GROUP BY t.contract_address, c.name, c.icon",
+                    address)
+
+            return {"collectibles": [{
+                "contract_address": c['contract_address'],
+                "value": hex(c['value']),
+                "name": c['name'],
+                "icon": c['icon']
+            } for c in collectibles]}
+        else:
+            async with self.db:
+                collectible = await self.db.fetchrow(
+                    "SELECT * FROM collectibles WHERE contract_address = $1",
+                    contract_address)
+                tokens = await self.db.fetch(
+                    "SELECT * FROM collectible_tokens "
+                    "WHERE contract_address = $1 AND owner_address = $2",
+                    contract_address, address)
+
+            result = dict(collectible)
+            result['value'] = hex(len(tokens))
+            result['tokens'] = [dict(t) for t in tokens]
+            return result

@@ -70,7 +70,7 @@ class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 
-        self.write({"collectibles": result})
+        self.write(result)
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
