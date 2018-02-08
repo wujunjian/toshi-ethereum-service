@@ -92,6 +92,7 @@ contract Token {
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
+TEST_ADDRESS_2 = "0x819671356713b9e379e8beec9425f15cf8299eca"
 
 TEST_APN_ID = "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
 
@@ -187,3 +188,50 @@ class ERC20Test(EthServiceBaseTest):
                                              TEST_ADDRESS, contract.address)
             self.assertEqual(int(balance['value'], 16), (10 ** token['decimals']) * (2 if token['symbol'] != token_args[-1][0] else 1),
                              "invalid balance after updating {} token".format(token['symbol']))
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_transaction_skeleton_erc20_transfer(self, *, parity, push_client, monitor):
+        """Tests that the transaction skeleton endpoint """
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+
+        result = await contract.balanceOf(TEST_ADDRESS)
+        self.assertEquals(result, 10 * 10 ** 18)
+
+        # force block check to clear out txs pre registration
+        await monitor.block_check()
+
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body={
+            "registration_id": TEST_APN_ID
+        })
+        self.assertEqual(resp.code, 204)
+
+        await asyncio.sleep(0.1)
+
+        await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS, 10 ** 18)
+
+        # wait for unconfirmed and confirmed PN, otherwise the contract send will overwrite it (TODO)
+        await push_client.get()
+        await push_client.get()
+
+        # test sending new tokens via skel
+        await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 5 * 10 ** 18, token_address=contract.address)
+
+        # wait for unconfirmed and confirmed PN, otherwise the contract send will overwrite it (TODO)
+        await push_client.get()
+        await push_client.get()
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['value'], hex(5 * 10 ** 18))
+
+        # test sending tokens when balance isn't updated fails
+        await self.get_tx_skel(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 10 * 10 ** 18,
+                               token_address=contract.address, expected_response_code=400)

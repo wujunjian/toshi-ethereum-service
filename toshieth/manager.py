@@ -538,6 +538,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 if value == "0x0000000000000000000000000000000000000000000000000000000000000000":
                     bulk_delete.append((contract_address, eth_address))
                 else:
+                    value = hex(parse_int(value))  # remove hex padding of value
                     bulk_update.append((contract_address, eth_address, value))
             except:
                 log.exception("WARNING: failed to update token cache of '{}' for address: {}".format(contract_address, eth_address))

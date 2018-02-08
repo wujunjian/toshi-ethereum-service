@@ -375,7 +375,6 @@ class BlockMonitor(TaskListenerApplication):
                 erc20_token = await con.fetchrow("SELECT * FROM tokens WHERE address = $1",
                                                  to_address)
                 if erc20_token:
-
                     if transaction['input'].startswith("0x23b872dd"):
                         # `transferFrom(address,address,uint256)` token sender is
                         # the first argument and token receiver is the second
@@ -396,6 +395,9 @@ class BlockMonitor(TaskListenerApplication):
                         # `transfer(address,uint256)` token receiver is the first argument in the input data
                         interested_from_address = from_address
                         interested_to_address = "0x" + transaction['input'][34:74]
+                else:
+                    interested_to_address = to_address
+                    interested_from_address = from_address
             else:
                 erc20_token = False
                 interested_to_address = to_address

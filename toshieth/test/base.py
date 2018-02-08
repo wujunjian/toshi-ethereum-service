@@ -58,7 +58,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
                         return body
                     await asyncio.sleep(0.01)
 
-    async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None, data=None):
+    async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None, data=None, token_address=None, expected_response_code=200):
         from_addr = private_key_to_address(from_key)
         body = {
             "from": from_addr,
@@ -73,16 +73,17 @@ class EthServiceBaseTest(AsyncHandlerTest):
             body['gas'] = gas
         if data is not None:
             body['data'] = data
+        if token_address is not None:
+            body['token_address'] = token_address
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
 
-        self.assertResponseCodeEqual(resp, 200, resp.body)
-
-        body = json_decode(resp.body)
-
-        tx = body['tx']
-
-        return tx
+        self.assertResponseCodeEqual(resp, expected_response_code, resp.body)
+        if expected_response_code == 200:
+            body = json_decode(resp.body)
+            tx = body['tx']
+            return tx
+        return None
 
     async def sign_and_send_tx(self, from_key, tx, expected_response_code=200):
 
@@ -101,9 +102,9 @@ class EthServiceBaseTest(AsyncHandlerTest):
             return tx_hash
         return None
 
-    async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None):
+    async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None, token_address=None):
 
-        tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price)
+        tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price, token_address=token_address)
         return await self.sign_and_send_tx(from_key, tx)
 
     @property

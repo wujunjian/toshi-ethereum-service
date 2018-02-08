@@ -90,7 +90,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             return nw_nonce
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
-    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None):
+    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None, token_address=None):
 
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
@@ -103,6 +103,21 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         if to_address is not None and to_address != to_address.lower() and not checksum_validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address Checksum'})
+
+        # flag to force arguments into an erc20 token transfer
+        if token_address is not None:
+            if not validate_address(token_address):
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
+            if data is not None:
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Cannot include both data and token_address'})
+
+            value = parse_int(value)
+            if value is None or value < 0:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
+            data = "0xa9059cbb000000000000000000000000{}{:064x}".format(to_address[2:].lower(), value)
+            token_value = value
+            value = 0
+            to_address = token_address
 
         if value:
             value = parse_int(value)
@@ -150,7 +165,21 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 gas = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=value)
             except JsonRPCError:
                 # this can occur if sending a transaction to a contract that doesn't match a valid method
-                # and the contract has no default method implemented
+                # and the contract has no default method implemented.
+                # this can also happen if the current state of the blockchain means that submitting the
+                # transaction would fail (abort).
+                if token_address is not None:
+                    # when dealing with erc20, this usually means the user's balance for that token isn't
+                    # high enough, check that and throw an error if it's the case, and if not fall
+                    # back to the standard invalid_data error
+                    async with self.db:
+                        bal = await self.db.fetchval("SELECT value FROM token_balances "
+                                                     "WHERE contract_address = $1 AND eth_address = $2",
+                                                     token_address, from_address)
+                    if bal is not None:
+                        bal = parse_int(bal)
+                        if bal < token_value:
+                            raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Unable to estimate gas for contract call'})
             # if data is present, buffer gas estimate by 20%
             if len(data) > 0:
