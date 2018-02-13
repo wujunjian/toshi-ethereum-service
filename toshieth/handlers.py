@@ -70,6 +70,8 @@ class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 
+        if result is None:
+            raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
         self.write(result)
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):

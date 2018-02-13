@@ -3,6 +3,7 @@ import asyncio
 import toshieth.monitor
 import toshieth.manager
 import toshieth.push_service
+import toshieth.collectibles.erc721
 
 from toshi.test.base import AsyncHandlerTest
 from toshieth.app import Application, urls
@@ -15,6 +16,7 @@ from toshi.ethereum.utils import prepare_ethereum_jsonrpc_client
 from toshi.test.database import requires_database
 from toshi.test.redis import requires_redis
 from toshi.test.ethereum.parity import requires_parity
+from toshi.test.ethereum.faucet import FAUCET_PRIVATE_KEY
 
 class EthServiceBaseTest(AsyncHandlerTest):
 
@@ -63,7 +65,7 @@ class EthServiceBaseTest(AsyncHandlerTest):
         body = {
             "from": from_addr,
             "to": to_addr,
-            "value": val
+            "value": hex(val) if isinstance(val, int) else val
         }
         if nonce is not None:
             body['nonce'] = nonce
@@ -106,6 +108,11 @@ class EthServiceBaseTest(AsyncHandlerTest):
 
         tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price, token_address=token_address)
         return await self.sign_and_send_tx(from_key, tx)
+
+    async def faucet(self, to_address, value):
+        tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, to_address, value)
+        await self.wait_on_tx_confirmation(tx_hash)
+        return tx_hash
 
     @property
     def network_id(self):
@@ -259,6 +266,48 @@ class MockPushClient:
     def get(self):
         return self.send_queue.get()
 
+def requires_collectible_monitor(func=None, pass_collectible_monitor=False, begin_started=True):
+    """Used to ensure all database connections are returned to the pool
+    before finishing the test"""
+
+    def wrap(fn):
+
+        async def wrapper(self, *args, **kwargs):
+
+            if 'ethereum' not in self._app.config:
+                raise Exception("Missing ethereum config from setup")
+
+            if 'collectibles' not in self._app.config:
+                self._app.config['collectibles'] = {'image_format': ''}
+
+            monitor = toshieth.collectibles.erc721.ERC721TaskManager(
+                config=self._app.config,
+                connection_pool=self._app.connection_pool,
+                redis_connection_pool=self._app.redis_connection_pool)
+
+            if begin_started:
+                await monitor.start()
+
+            if pass_collectible_monitor:
+                if pass_collectible_monitor is True:
+                    kwargs['collectible_monitor'] = monitor
+                else:
+                    kwargs[pass_collectible_monitor] = monitor
+
+            try:
+                f = fn(self, *args, **kwargs)
+                if asyncio.iscoroutine(f):
+                    await f
+            finally:
+                await monitor.shutdown(soft=True)
+
+        return wrapper
+
+    if func is not None:
+        return wrap(func)
+    else:
+        return wrap
+
 def composed(*decs):
     """Decorator to combine multiple decorators together"""
     def deco(f):
@@ -280,14 +329,15 @@ def composed(*decs):
         return f
     return deco
 
-def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None):
+def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None, collectible_monitor=None):
     dec = composed(
         requires_database,
         (requires_redis, {'pass_redis': redis}),
         (requires_parity, {'pass_parity': parity, 'pass_ethminer': ethminer}),
         (requires_task_manager, {'pass_manager': manager}),
         (requires_block_monitor, {'pass_monitor': block_monitor}),
-        (requires_push_service, (MockPushClient,), {'pass_push_client': push_client})
+        (requires_push_service, (MockPushClient,), {'pass_push_client': push_client}),
+        (requires_collectible_monitor, {'pass_collectible_monitor': collectible_monitor})
     )
     if func is None:
         return dec

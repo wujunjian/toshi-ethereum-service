@@ -454,6 +454,11 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
     async def get_collectibles(self, address, contract_address=None):
 
+        if not validate_address(address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+        if contract_address is not None and not validate_address(contract_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_contract_address', 'message': 'Invalid Contract Address'})
+
         if contract_address is None:
             async with self.db:
                 collectibles = await self.db.fetch(
@@ -480,6 +485,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     "WHERE contract_address = $1 AND owner_address = $2",
                     contract_address, address)
 
+            if collectible is None:
+                return None
             result = dict(collectible)
             result['value'] = hex(len(tokens))
             result['tokens'] = [dict(t) for t in tokens]

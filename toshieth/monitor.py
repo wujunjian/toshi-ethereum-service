@@ -192,6 +192,8 @@ class BlockMonitor(TaskListenerApplication):
                     await con.execute("UPDATE last_blocknumber SET blocknumber = $1",
                                       self.last_block_number)
 
+                self.tasks.process_block(self.last_block_number)
+
             else:
 
                 break
