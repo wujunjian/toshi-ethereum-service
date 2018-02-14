@@ -319,19 +319,47 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 log.info("Setting tx '{}' to error due to forced overwrite".format(existing['hash']))
                 self.tasks.update_transaction(existing['transaction_id'], 'error')
 
+            data = data_encoder(tx.data)
+            if data and \
+               ((data.startswith("0xa9059cbb") and len(data) == 138) or \
+                (data.startswith("0x23b872dd") and len(data) == 202)):
+                # check if the token is a known erc20 token
+                async with self.db:
+                    erc20_token = await self.db.fetchrow("SELECT * FROM tokens WHERE address = $1",
+                                                         to_address)
+            else:
+                erc20_token = False
+
             # add tx to database
             async with self.db:
-                await self.db.execute(
+                db_tx = await self.db.fetchrow(
                     "INSERT INTO transactions "
                     "(hash, from_address, to_address, nonce, "
                     "value, gas, gas_price, "
                     "data, v, r, s, "
                     "sender_toshi_id) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+                    "RETURNING transaction_id",
                     tx_hash, from_address, to_address, tx.nonce,
                     hex(tx.value), hex(tx.startgas), hex(tx.gasprice),
                     data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                     self.user_toshi_id)
+
+                if erc20_token:
+                    token_value = int(data[-64:], 16)
+                    if data.startswith("0x23b872dd"):
+                        erc20_from_address = "0x" + data[34:74]
+                        erc20_to_address = "0x" + data[98:138]
+                    else:
+                        erc20_from_address = from_address
+                        erc20_to_address = "0x" + data[34:74]
+                    await self.db.execute(
+                        "INSERT INTO token_transactions "
+                        "(transaction_id, contract_address, from_address, to_address, value) "
+                        "VALUES ($1, $2, $3, $4, $5)",
+                        db_tx['transaction_id'], erc20_token['address'],
+                        erc20_from_address, erc20_to_address, hex(token_value))
+
                 await self.db.commit()
 
             # trigger processing the transaction queue

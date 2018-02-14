@@ -177,11 +177,12 @@ class ERC20Test(EthServiceBaseTest):
             await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'], wait_for_confirmation=False)
             while True:
                 pn = await push_client.get()
-                sofa = json_decode(pn[1]['message'])
+                sofa = parse_sofa_message(pn[1]['message'])
                 if sofa['status'] == 'confirmed':
                     break
-            self.assertEqual(sofa['symbol'], token['symbol'])
+            self.assertEqual(sofa['contractAddress'], contract.address)
             self.assertEqual(sofa['value'], hex(10 ** token['decimals']))
+            self.assertEqual(sofa['toAddress'], TEST_ADDRESS)
             await asyncio.sleep(0.1)
             async with self.pool.acquire() as con:
                 balance = await con.fetchrow("SELECT * FROM token_balances WHERE eth_address = $1 AND contract_address = $2",
@@ -204,13 +205,25 @@ class ERC20Test(EthServiceBaseTest):
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
+        await asyncio.sleep(0.1)
 
         resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body={
             "registration_id": TEST_APN_ID
         })
         self.assertEqual(resp.code, 204)
 
-        await asyncio.sleep(0.1)
+        # make sure tokens are empty to start
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['value'], hex(10 * 10 ** 18))
+
+        # make sure tokens are empty to start
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 0)
 
         await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS, 10 ** 18)
 
@@ -226,6 +239,13 @@ class ERC20Test(EthServiceBaseTest):
         await push_client.get()
 
         resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['value'], hex(5 * 10 ** 18))
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
 
         self.assertResponseCodeEqual(resp, 200)
         body = json_decode(resp.body)

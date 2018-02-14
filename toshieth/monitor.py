@@ -409,6 +409,7 @@ class BlockMonitor(TaskListenerApplication):
             is_interesting = await con.fetchrow("SELECT 1 FROM notification_registrations "
                                                 "WHERE eth_address = $1 OR eth_address = $2",
                                                 interested_to_address, interested_from_address)
+
             if is_interesting:
                 # if so, add it to the database and trigger an update
                 # add tx to database
@@ -436,6 +437,8 @@ class BlockMonitor(TaskListenerApplication):
                 self.tasks.update_transaction(
                     db_tx['transaction_id'],
                     'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
+                return db_tx['transaction_id']
+            return
 
     @log_unhandled_exceptions(logger=log)
     async def sanity_check(self):
