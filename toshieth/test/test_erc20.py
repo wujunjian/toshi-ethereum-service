@@ -1,98 +1,23 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import os
-import blockies
-import hashlib
 
 from tornado.escape import json_decode
 from tornado.testing import gen_test
 
-from toshieth.app import urls
-from toshi.test.database import requires_database
-from toshi.test.base import AsyncHandlerTest
-
-from toshi.test.base import ToshiWebSocketJsonRPCClient
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
-from toshi.test.ethereum.faucet import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
-from toshi.ethereum.tx import sign_transaction, data_encoder, data_decoder
-from toshi.jsonrpc.client import JsonRPCClient
+from toshi.test.ethereum.faucet import FAUCET_PRIVATE_KEY
 from toshi.sofa import parse_sofa_message
-from ethereum.utils import sha3
+from toshi.ethereum.utils import private_key_to_address, data_decoder
 
 from toshi.ethereum.contract import Contract
 
-ABC_TOKEN_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
-YAC_TOKEN_ADDRESS = "0x9ab6c6111577c51da46e2c4c93a3622671578657"
-
-ERC20_CONTRACT = """
-pragma solidity ^0.4.8;
-
-contract Token {
-
-    uint256 constant MAX_UINT256 = 2**256 - 1;
-
-    mapping (address => uint256) balances;
-    mapping (address => mapping (address => uint256)) allowed;
-
-    uint256 public totalSupply;
-
-    string public name;
-    uint8 public decimals;
-    string public symbol;
-
-    function Token(uint256 _initialAmount,
-                   string _tokenName,
-                   uint8 _decimalUnits,
-                   string _tokenSymbol) {
-        balances[msg.sender] = _initialAmount;
-        totalSupply = _initialAmount;
-        name = _tokenName;
-        decimals = _decimalUnits;
-        symbol = _tokenSymbol;
-    }
-
-    function transfer(address _to, uint256 _value) returns (bool success) {
-        require(balances[msg.sender] >= _value);
-        balances[msg.sender] -= _value;
-        balances[_to] += _value;
-        Transfer(msg.sender, _to, _value);
-        return true;
-    }
-
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        uint256 allowance = allowed[_from][msg.sender];
-        require(balances[_from] >= _value && allowance >= _value);
-        balances[_to] += _value;
-        balances[_from] -= _value;
-        if (allowance < MAX_UINT256) {
-            allowed[_from][msg.sender] -= _value;
-        }
-        Transfer(_from, _to, _value);
-        return true;
-    }
-
-    function balanceOf(address _owner) constant returns (uint256 balance) {
-        return balances[_owner];
-    }
-
-    function approve(address _spender, uint256 _value) returns (bool success) {
-        allowed[msg.sender][_spender] = _value;
-        Approval(msg.sender, _spender, _value);
-        return true;
-    }
-
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
-      return allowed[_owner][_spender];
-    }
-
-    event Transfer(address indexed _from, address indexed _to, uint256 _value);
-    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
-}
-"""
+ERC20_CONTRACT = open(os.path.join(os.path.dirname(__file__), "erc20.sol")).read()
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
-TEST_ADDRESS = "0x056db290f8ba3250ca64a45d16284d04bc6f5fbf"
-TEST_ADDRESS_2 = "0x819671356713b9e379e8beec9425f15cf8299eca"
+TEST_PRIVATE_KEY_2 = data_decoder("0x8945608e66736aceb34a83f94689b4e98af497ffc9dc2004a93824096330fa77")
+TEST_ADDRESS = private_key_to_address(TEST_PRIVATE_KEY)
+TEST_ADDRESS_2 = private_key_to_address(TEST_PRIVATE_KEY_2)
 
 TEST_APN_ID = "64be4fe95ba967bb533f0c240325942b9e1f881b5cd2982568a305dd4933e0bd"
 
@@ -255,3 +180,40 @@ class ERC20Test(EthServiceBaseTest):
         # test sending tokens when balance isn't updated fails
         await self.get_tx_skel(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 10 * 10 ** 18,
                                token_address=contract.address, expected_response_code=400)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_bad_erc20_transaction(self, *, parity, push_client, monitor):
+        """Tests that the transaction skeleton endpoint """
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS, 10 ** 18)
+
+        result = await contract.balanceOf(TEST_ADDRESS)
+        self.assertEquals(result, 10 * 10 ** 18)
+
+        # force block check to clear out txs pre registration
+        await monitor.block_check()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY_2, method="POST", body={
+            "registration_id": TEST_APN_ID
+        })
+        self.assertEqual(resp.code, 204)
+
+        # send transaction sending more tokens than the sender has
+        tx_hash = await contract.transfer.set_sender(TEST_PRIVATE_KEY)(TEST_ADDRESS_2, 20 * 10 ** 18, startgas=61530)
+
+        # wait for unconfirmed
+        pn = await push_client.get()
+        sofa = parse_sofa_message(pn[1]['message'])
+        self.assertEqual(sofa['status'], 'unconfirmed')
+        self.assertEqual(sofa['value'], hex(20 * 10 ** 18))
+        self.assertEqual(sofa['txHash'], tx_hash)
+        pn = await push_client.get()
+        sofa = parse_sofa_message(pn[1]['message'])
+        self.assertEqual(sofa['status'], 'error')
+        self.assertEqual(sofa['txHash'], tx_hash)

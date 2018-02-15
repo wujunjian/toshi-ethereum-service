@@ -10,14 +10,14 @@ from toshi.redis import RedisMixin
 from toshieth.mixins import BalanceMixin
 from toshi.ethereum.mixin import EthereumMixin
 from toshi.jsonrpc.errors import JsonRPCError
-from toshi.log import configure_logger
+from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.utils import parse_int
 from toshi.tasks import TaskHandler, TaskDispatcher
 from toshi.sofa import SofaPayment
 from toshi.ethereum.tx import (
     create_transaction, add_signature_to_transaction, encode_transaction
 )
-from toshi.ethereum.utils import data_decoder, data_encoder
+from toshi.ethereum.utils import data_decoder, data_encoder, decode_single_address
 
 from toshieth.tasks import TaskListenerApplication
 
@@ -290,6 +290,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         if transactions_out:
             self.tasks.process_transaction_queue(ethereum_address)
 
+    @log_unhandled_exceptions(logger=log)
     async def update_transaction(self, transaction_id, status):
 
         async with self.db:
@@ -313,19 +314,22 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             if tx['v'] is not None:
                 log.info("Updating status of tx {} to {} (previously: {})".format(tx['hash'], status, tx['status']))
 
-            if status == 'confirmed':
-                transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
-                if transaction and 'blockNumber' in transaction:
-                    blocknumber = parse_int(transaction['blockNumber'])
+        if status == 'confirmed':
+            transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
+            if transaction and 'blockNumber' in transaction:
+                blocknumber = parse_int(transaction['blockNumber'])
+                async with self.db:
                     await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
                                           "WHERE transaction_id = $3",
                                           status, blocknumber, transaction_id)
-                else:
-                    log.error("requested transaction '{}''s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+                    await self.db.commit()
             else:
+                log.error("requested transaction '{}''s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+        else:
+            async with self.db:
                 await self.db.execute("UPDATE transactions SET status = $1, updated = (now() AT TIME ZONE 'utc') WHERE transaction_id = $2",
                                       status, transaction_id)
-            await self.db.commit()
+                await self.db.commit()
 
         # render notification
 
@@ -341,9 +345,24 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             from_address = token_tx['from_address']
             to_address = token_tx['to_address']
             if status == 'confirmed':
-                self.tasks.update_token_cache(token_tx['contract_address'],
-                                              from_address,
-                                              to_address)
+                # check transaction receipt to make sure the transfer was successful
+                tx_receipt = await self.eth.eth_getTransactionReceipt(tx['hash'])
+                has_transfer_event = False
+                if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
+                    for _log in tx_receipt['logs']:
+                        if len(_log['topics']) > 2:
+                            if _log['topics'][0] == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' and \
+                               decode_single_address(_log['topics'][1]) == from_address and \
+                               decode_single_address(_log['topics'][2]) == to_address:
+                                has_transfer_event = True
+                                break
+                if not has_transfer_event:
+                    # there was no Transfer event matching this transaction
+                    status = 'error'
+                else:
+                    self.tasks.update_token_cache(token_tx['contract_address'],
+                                                  from_address,
+                                                  to_address)
             data = {
                 "txHash": tx['hash'],
                 "fromAddress": from_address,
