@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS last_blocknumber (
 );
 
 CREATE TABLE IF NOT EXISTS tokens (
-    address VARCHAR UNIQUE, -- contract address
-    symbol VARCHAR PRIMARY KEY, -- currency symbol
+    contract_address VARCHAR PRIMARY KEY, -- contract address
+    symbol VARCHAR, -- currency symbol
     name VARCHAR, -- verbose name
     decimals INTEGER, -- currency decimal points
     icon BYTEA, -- png data
@@ -141,7 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notific
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_contract_address_topic ON filter_registrations (contract_address, topic_id);
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON filter_registrations (filter_id, registration_id);
 
-CREATE INDEX IF NOT EXISTS idx_tokens_address ON tokens (address);
+CREATE INDEX IF NOT EXISTS idx_tokens_contract_address ON tokens (contract_address);
 CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address ON token_balances (eth_address);
 CREATE INDEX IF NOT EXISTS idx_token_registrations_last_queried ON token_registrations (last_queried ASC);
 

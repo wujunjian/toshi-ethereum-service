@@ -325,7 +325,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 (data.startswith("0x23b872dd") and len(data) == 202)):
                 # check if the token is a known erc20 token
                 async with self.db:
-                    erc20_token = await self.db.fetchrow("SELECT * FROM tokens WHERE address = $1",
+                    erc20_token = await self.db.fetchrow("SELECT * FROM tokens WHERE contract_address = $1",
                                                          to_address)
             else:
                 erc20_token = False
@@ -357,7 +357,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                         "INSERT INTO token_transactions "
                         "(transaction_id, contract_address, from_address, to_address, value) "
                         "VALUES ($1, $2, $3, $4, $5)",
-                        db_tx['transaction_id'], erc20_token['address'],
+                        db_tx['transaction_id'], erc20_token['contract_address'],
                         erc20_from_address, erc20_to_address, hex(token_value))
 
                 await self.db.commit()
@@ -462,7 +462,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 "SELECT t.symbol, t.name, t.decimals, b.value, b.contract_address, t.format "
                 "FROM token_balances b "
                 "JOIN tokens t "
-                "ON t.address = b.contract_address "
+                "ON t.contract_address = b.contract_address "
                 "WHERE eth_address = $1 ORDER BY value DESC", address)
 
         tokens = []

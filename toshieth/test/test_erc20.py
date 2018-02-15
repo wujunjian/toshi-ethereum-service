@@ -30,7 +30,7 @@ class ERC20Test(EthServiceBaseTest):
         contract = await Contract.from_source_code(sourcecode, contract_name, constructor_data=constructor_data, deployer_private_key=FAUCET_PRIVATE_KEY)
 
         async with self.pool.acquire() as con:
-            await con.execute("INSERT INTO tokens (address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+            await con.execute("INSERT INTO tokens (contract_address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
                               contract.address, symbol, name, decimals)
 
         return contract

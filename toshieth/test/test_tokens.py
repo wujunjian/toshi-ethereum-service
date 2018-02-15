@@ -19,8 +19,10 @@ class TokenHandlerTest(AsyncHandlerTest):
         return urls
 
     def get_url(self, path):
-        if not path.startswith("/token"):
-            path = "/{}".format(path)
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        if not path.startswith("/token/"):
+            path = "/v1{}".format(path)
         return super().get_url(path)
 
     @gen_test
@@ -34,15 +36,15 @@ class TokenHandlerTest(AsyncHandlerTest):
         async with self.pool.acquire() as con:
             await con.execute(
                 "INSERT INTO tokens "
-                "(address, symbol, name, decimals, icon, hash) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                "1", "ABC", "Awesome Balls Currency Token", 18, image, hash
+                "(contract_address, symbol, name, decimals, icon, hash, format) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                "0x1111111111111111111111111111111111111111", "ABC", "Awesome Balls Currency Token", 18, image, hash, 'png'
             )
             await con.execute(
                 "INSERT INTO tokens "
-                "(address, symbol, name, decimals, icon, hash) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                "2", "YAC", "Yet Another Currency Token", 2, image, hash
+                "(contract_address, symbol, name, decimals, icon, hash, format) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                "0x2222222222222222222222222222222222222222", "YAC", "Yet Another Currency Token", 2, image, hash, 'png'
             )
 
         resp = await self.fetch(
@@ -54,7 +56,7 @@ class TokenHandlerTest(AsyncHandlerTest):
         self.assertEqual(len(body['tokens']), 2)
 
         for token in body['tokens']:
-            icon_url = token['icon_url']
+            icon_url = token['icon']
             resp = await self.fetch(
                 icon_url, method="GET"
             )
@@ -63,5 +65,5 @@ class TokenHandlerTest(AsyncHandlerTest):
                              'image/png')
             self.assertEqual(resp.body, image)
 
-        resp = await self.fetch("/token/AAA.png")
+        resp = await self.fetch("/token/0x0000000000000000000000000000000000000000.png")
         self.assertResponseCodeEqual(resp, 404)

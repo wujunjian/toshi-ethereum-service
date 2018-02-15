@@ -302,7 +302,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 "SELECT tok.symbol, tok.name, tok.decimals, tx.contract_address, tx.value, tx.from_address, tx.to_address "
                 "FROM token_transactions tx "
                 "JOIN tokens tok "
-                "ON tok.address = tx.contract_address "
+                "ON tok.contract_address = tx.contract_address "
                 "WHERE tx.transaction_id = $1", transaction_id)
 
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
@@ -536,7 +536,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             if contract_address == "*":
                 tokens = await self.db.fetch("SELECT * FROM tokens")
             else:
-                token = await self.db.fetchrow("SELECT * FROM tokens WHERE address = $1", contract_address)
+                token = await self.db.fetchrow("SELECT * FROM tokens WHERE contract_address = $1", contract_address)
                 tokens = [token]
 
         futures = []
@@ -544,8 +544,8 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             for address in eth_addresses:
                 # data for `balanceOf(address)`
                 data = "0x70a08231000000000000000000000000" + address[2:]
-                f = to_asyncio_future(self.eth.eth_call(to_address=token['address'], data=data))
-                futures.append((token['address'], address, f))
+                f = to_asyncio_future(self.eth.eth_call(to_address=token['contract_address'], data=data))
+                futures.append((token['contract_address'], address, f))
 
         # wait for all the jsonrpc calls to finish
         await asyncio.gather(*[f[2] for f in futures], return_exceptions=True)

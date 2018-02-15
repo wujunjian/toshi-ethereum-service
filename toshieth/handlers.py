@@ -22,12 +22,12 @@ from tornado.web import HTTPError
 
 class TokenIconHandler(DatabaseMixin, SimpleFileHandler):
 
-    async def get(self, symbol, format):
+    async def get(self, address, format):
 
         async with self.db:
             row = await self.db.fetchrow(
-                "SELECT * FROM tokens WHERE symbol = $1 AND format = lower($2)",
-                symbol, format
+                "SELECT * FROM tokens WHERE contract_address = $1 AND format = lower($2)",
+                address, format
             )
 
         if row is None:
@@ -39,6 +39,35 @@ class TokenIconHandler(DatabaseMixin, SimpleFileHandler):
             etag=row['hash'],
             last_modified=row['last_modified']
         )
+
+
+class TokenListHandler(DatabaseMixin, BaseHandler):
+
+    async def get(self):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        async with self.db:
+            count = await self.db.fetchval("SELECT COUNT(*) FROM tokens")
+        limit = 100
+        results = []
+        for offset in range(0, count, limit):
+            async with self.db:
+                rows = await self.db.fetch("SELECT symbol, name, contract_address, decimals, format FROM tokens OFFSET $1 LIMIT $2", offset, limit)
+            for row in rows:
+                token = {
+                    'symbol': row['symbol'],
+                    'name': row['name'],
+                    'contract_address': row['contract_address'],
+                    'decimals': row['decimals']
+                }
+                token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
+                                                             token['contract_address'], row['format'])
+                results.append(token)
+
+        self.write({"tokens": results})
 
 
 class TokenHandler(DatabaseMixin, EthereumMixin, BaseHandler):
