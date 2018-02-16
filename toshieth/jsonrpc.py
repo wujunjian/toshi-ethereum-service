@@ -104,28 +104,6 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         if to_address is not None and to_address != to_address.lower() and not checksum_validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address Checksum'})
 
-        # flag to force arguments into an erc20 token transfer
-        if token_address is not None:
-            if not validate_address(token_address):
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
-            if data is not None:
-                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Cannot include both data and token_address'})
-
-            value = parse_int(value)
-            if value is None or value < 0:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
-            data = "0xa9059cbb000000000000000000000000{}{:064x}".format(to_address[2:].lower(), value)
-            token_value = value
-            value = 0
-            to_address = token_address
-
-        if value:
-            value = parse_int(value)
-            if value is None or value < 0:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
-
-        # check optional arguments
-
         # check if we should ignore the given gasprice
         # NOTE: only meant to be here while cryptokitty fever is pushing
         # up gas prices... this shouldn't be perminant
@@ -138,6 +116,23 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     whitelisted = await self.db.fetchrow("SELECT 1 FROM to_address_gas_price_whitelist WHERE address = $1", to_address)
             if not whitelisted:
                 gas_price = None
+
+        if gas_price is None:
+            # try and use cached gas station gas price
+            gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
+            if gas_station_gas_price:
+                gas_price = parse_int(gas_station_gas_price)
+            if gas_price is None:
+                gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
+        else:
+            gas_price = parse_int(gas_price)
+            if gas_price is None:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
+
+        if gas is not None:
+            gas = parse_int(gas)
+            if gas is None:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
 
         if nonce is None:
             # check cache for nonce
@@ -159,6 +154,76 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Invalid Data field'})
         else:
             data = b''
+
+        # flag to force arguments into an erc20 token transfer
+        if token_address is not None:
+            if not validate_address(token_address):
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
+            if data != b'':
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Cannot include both data and token_address'})
+
+            if isinstance(value, str) and value.lower() == "max":
+                # get the balance in the database
+                async with self.db:
+                    value = await self.db.fetchval("SELECT value FROM token_balances "
+                                                   "WHERE contract_address = $1 AND eth_address = $2",
+                                                   token_address, from_address)
+                if value is None:
+                    # get the value from the ethereum node
+                    data = "0x70a08231000000000000000000000000" + from_address[2:].lower()
+                    value = await self.eth.eth_call(to_address=token_address, data=data)
+
+            value = parse_int(value)
+            if value is None or value < 0:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
+            data = data_decoder("0xa9059cbb000000000000000000000000{}{:064x}".format(to_address[2:].lower(), value))
+            token_value = value
+            value = 0
+            to_address = token_address
+
+        elif value:
+
+            if value == "max":
+                network_balance, balance, _, _ = await self.get_balances(from_address)
+                if gas is None:
+                    code = await self.eth.eth_getCode(to_address)
+                    if code:
+                        # we might have to do some work
+                        try:
+                            gas = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=0)
+                        except JsonRPCError:
+                            # no fallback function implemented in the contract means no ether can be sent to it
+                            raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                        attempts = 0
+                        # because the default function could do different things based on the eth sent, we make sure
+                        # the value is suitable. if we get different values 3 times abort
+                        while True:
+                            if attempts > 2:
+                                log.warning("Hit max attempts trying to get max value to send to contract '{}'".format(to_address))
+                                raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                            value = balance - (gas_price * gas)
+                            try:
+                                gas_with_value = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=value)
+                            except JsonRPCError:
+                                # no fallback function implemented in the contract means no ether can be sent to it
+                                raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                            if gas_with_value != gas:
+                                gas = gas_with_value
+                                attempts += 1
+                                continue
+                            else:
+                                break
+                    else:
+                        # normal address, 21000 gas per transaction
+                        gas = 21000
+                        value = balance - (gas_price * gas)
+                else:
+                    # preset gas, run with it!
+                    value = balance - (gas_price * gas)
+            else:
+                value = parse_int(value)
+                if value is None or value < 0:
+                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
 
         if gas is None:
             try:
@@ -184,22 +249,6 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             # if data is present, buffer gas estimate by 20%
             if len(data) > 0:
                 gas = int(gas * 1.2)
-        else:
-            gas = parse_int(gas)
-            if gas is None:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
-
-        if gas_price is None:
-            # try and use cached gas station gas price
-            gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
-            if gas_station_gas_price:
-                gas_price = parse_int(gas_station_gas_price)
-            if gas_price is None:
-                gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
-        else:
-            gas_price = parse_int(gas_price)
-            if gas_price is None:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
 
         try:
             tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
@@ -216,7 +265,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         transaction = encode_transaction(tx)
 
-        return {"tx": transaction, "gas": hex(gas), "gas_price": hex(gas_price), "nonce": hex(nonce), "value": hex(value)}
+        return {"tx": transaction, "gas": hex(gas), "gas_price": hex(gas_price), "nonce": hex(nonce),
+                "value": hex(token_value) if token_address else hex(value)}
 
     async def send_transaction(self, *, tx, signature=None):
 

@@ -162,6 +162,8 @@ class ERC20Test(EthServiceBaseTest):
         # wait for unconfirmed and confirmed PN, otherwise the contract send will overwrite it (TODO)
         await push_client.get()
         await push_client.get()
+        # randomly the balance update isn't complete right after the PNs are sent
+        await asyncio.sleep(0.1)
 
         resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
 
@@ -217,3 +219,39 @@ class ERC20Test(EthServiceBaseTest):
         sofa = parse_sofa_message(pn[1]['message'])
         self.assertEqual(sofa['status'], 'error')
         self.assertEqual(sofa['txHash'], tx_hash)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_erc20_max_transaction(self, *, parity, push_client, monitor):
+        """Tests that the transaction skeleton endpoint """
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS, 10 ** 18)
+
+        result = await contract.balanceOf(TEST_ADDRESS)
+        self.assertEquals(result, 10 * 10 ** 18)
+
+        # force block check to clear out txs pre registration
+        await monitor.block_check()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY_2, method="POST", body={
+            "registration_id": TEST_APN_ID
+        })
+        self.assertEqual(resp.code, 204)
+
+        # send transaction sending more tokens than the sender has
+        # test sending new tokens via skel
+        await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2,
+                           "max", token_address=contract.address)
+
+        await push_client.get()
+        await push_client.get()
+
+        result = await contract.balanceOf(TEST_ADDRESS)
+        self.assertEquals(result, 0)
+        result = await contract.balanceOf(TEST_ADDRESS_2)
+        self.assertEquals(result, 10 * 10 ** 18)
