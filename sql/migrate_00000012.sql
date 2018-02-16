@@ -1,6 +1,6 @@
 ALTER TABLE tokens RENAME COLUMN address TO contract_address;
 ALTER TABLE tokens DROP CONSTRAINT tokens_pkey;
-ALTER TABLE tokens ADD PRIMARY KEY (address);
+ALTER TABLE tokens ADD PRIMARY KEY (contract_address);
 
 ALTER TABLE collectibles ADD COLUMN last_block INTEGER DEFAULT 0;
 ALTER TABLE collectibles ADD COLUMN ready BOOLEAN DEFAULT FALSE;
