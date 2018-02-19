@@ -534,10 +534,9 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
         async with self.db:
             if contract_address == "*":
-                tokens = await self.db.fetch("SELECT * FROM tokens")
+                tokens = await self.db.fetch("SELECT contract_address FROM tokens")
             else:
-                token = await self.db.fetchrow("SELECT * FROM tokens WHERE contract_address = $1", contract_address)
-                tokens = [token]
+                tokens = [{'contract_address': contract_address}]
 
         futures = []
         for token in tokens:

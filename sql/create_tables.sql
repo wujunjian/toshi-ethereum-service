@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     icon BYTEA, -- png data
     hash VARCHAR,
     format VARCHAR,
+    ready BOOLEAN DEFAULT FALSE,
     last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
 );
 
@@ -145,4 +146,4 @@ CREATE INDEX IF NOT EXISTS idx_tokens_contract_address ON tokens (contract_addre
 CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address ON token_balances (eth_address);
 CREATE INDEX IF NOT EXISTS idx_token_registrations_last_queried ON token_registrations (last_queried ASC);
 
-UPDATE database_version SET version_number = 12;
+UPDATE database_version SET version_number = 13;

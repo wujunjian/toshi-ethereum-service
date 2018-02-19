@@ -206,6 +206,36 @@ class BlockMonitor(TaskListenerApplication):
             return
 
         self._filter_poll_process = asyncio.Future()
+
+        # check for newly added erc20 tokens
+        if not self._shutdown:
+
+            async with self.connection_pool.acquire() as con:
+                rows = await con.fetch("SELECT contract_address FROM tokens WHERE ready = false")
+                if len(rows) > 0:
+                    total_registrations = await con.fetchval("SELECT COUNT(*) FROM token_registrations")
+                else:
+                    total_registrations = 0
+
+            for row in rows:
+                log.info("Got new erc20 token: {}. updating {} registrations".format(
+                    row['contract_address'], total_registrations))
+
+            if len(rows) > 0:
+                limit = 1000
+                for offset in range(0, total_registrations, limit):
+                    async with self.connection_pool.acquire() as con:
+                        registrations = await con.fetch(
+                            "SELECT eth_address FROM token_registrations OFFSET $1 LIMIT $2",
+                            offset, limit)
+                    for row in rows:
+                        self.tasks.update_token_cache(
+                            row['contract_address'],
+                            *[r['eth_address'] for r in registrations])
+                async with self.connection_pool.acquire() as con:
+                    await con.executemany("UPDATE tokens SET ready = true WHERE contract_address = $1",
+                                          [(r['contract_address'],) for r in rows])
+
         if not self._shutdown:
 
             if self._new_pending_transaction_filter_id is not None:
@@ -409,6 +439,10 @@ class BlockMonitor(TaskListenerApplication):
             is_interesting = await con.fetchrow("SELECT 1 FROM notification_registrations "
                                                 "WHERE eth_address = $1 OR eth_address = $2",
                                                 interested_to_address, interested_from_address)
+            if not is_interesting and erc20_token:
+                is_interesting = await con.fetchrow("SELECT 1 FROM token_registrations "
+                                                    "WHERE eth_address = $1 OR eth_address = $2",
+                                                    interested_to_address, interested_from_address)
 
             if is_interesting:
                 # if so, add it to the database and trigger an update

@@ -255,3 +255,36 @@ class ERC20Test(EthServiceBaseTest):
         self.assertEquals(result, 0)
         result = await contract.balanceOf(TEST_ADDRESS_2)
         self.assertEquals(result, 10 * 10 ** 18)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_newly_added_erc20_token(self, *, parity, push_client, monitor):
+        """Tests that the transaction skeleton endpoint """
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS, 10 ** 18)
+
+        result = await contract.balanceOf(TEST_ADDRESS)
+        self.assertEquals(result, 10 * 10 ** 18)
+
+        # force block check to clear out txs pre registration
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+
+        # deploy a new erc20 contract
+        contract2 = await self.deploy_erc20_contract("NEW", "New Token", 18)
+        await contract2.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
