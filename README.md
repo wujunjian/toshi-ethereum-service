@@ -9,7 +9,7 @@ A light service that sits ontop of a standard ethereum node and provides helper 
 - Python >= 3.5
 - Postgresql >= 9.6
 - Redis >= 3.0.0
-- Parity == 1.7.8
+- Parity == 1.8.9
 
 ### Setup env
 
@@ -100,7 +100,7 @@ Install external software dependencies
 brew install postgresql
 brew install redis
 brew tap ethcore/ethcore
-brew install parity
+brew install parity --stable
 ```
 
 Ethminer needs to be installed manually
