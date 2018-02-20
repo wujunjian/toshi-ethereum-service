@@ -207,7 +207,10 @@ class ERC20Test(EthServiceBaseTest):
         self.assertEqual(resp.code, 204)
 
         # send transaction sending more tokens than the sender has
-        tx_hash = await contract.transfer.set_sender(TEST_PRIVATE_KEY)(TEST_ADDRESS_2, 20 * 10 ** 18, startgas=61530)
+        tx_hash = await contract.transfer.set_sender(TEST_PRIVATE_KEY)(TEST_ADDRESS_2, 20 * 10 ** 18, startgas=61530, wait_for_confirmation=False)
+
+        # process pending transactions
+        await monitor.filter_poll()
 
         # wait for unconfirmed
         pn = await push_client.get()
