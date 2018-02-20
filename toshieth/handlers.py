@@ -63,8 +63,11 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
                     'contract_address': row['contract_address'],
                     'decimals': row['decimals']
                 }
-                token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
-                                                             token['contract_address'], row['format'])
+                if row['format'] is not None:
+                    token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
+                                                                 token['contract_address'], row['format'])
+                else:
+                    token['icon'] = None
                 results.append(token)
 
         self.write({"tokens": results})

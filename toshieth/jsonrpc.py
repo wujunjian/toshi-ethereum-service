@@ -522,10 +522,14 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 "name": b['name'],
                 "decimals": b['decimals'],
                 "value": b['value'],
-                "contract_address": b['contract_address'],
-                "icon": "{}://{}/token/{}.{}".format(
-                    self.request.protocol, self.request.host, b['symbol'], b['format'])
+                "contract_address": b['contract_address']
             }
+            if b['format'] is not None:
+                details["icon"] = "{}://{}/token/{}.{}".format(
+                    self.request.protocol, self.request.host, b['contract_address'], b['format'])
+            else:
+                details['icon'] = None
+
             tokens.append(details)
 
         return tokens
