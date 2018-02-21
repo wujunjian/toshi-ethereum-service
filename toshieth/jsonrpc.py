@@ -544,23 +544,24 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         if contract_address is None:
             async with self.db:
                 collectibles = await self.db.fetch(
-                    "SELECT t.contract_address, COUNT(t.token_id) AS value, c.name, c.icon "
+                    "SELECT t.contract_address, COUNT(t.token_id) AS value, c.name, c.icon, c.url "
                     "FROM collectible_tokens t "
                     "JOIN collectibles c ON c.contract_address = t.contract_address "
-                    "WHERE t.owner_address = $1 "
-                    "GROUP BY t.contract_address, c.name, c.icon",
+                    "WHERE t.owner_address = $1 AND c.ready = true "
+                    "GROUP BY t.contract_address, c.name, c.icon, c.url",
                     address)
 
             return {"collectibles": [{
                 "contract_address": c['contract_address'],
                 "value": hex(c['value']),
                 "name": c['name'],
+                "url": c["url"],
                 "icon": c['icon']
             } for c in collectibles]}
         else:
             async with self.db:
                 collectible = await self.db.fetchrow(
-                    "SELECT * FROM collectibles WHERE contract_address = $1",
+                    "SELECT * FROM collectibles WHERE contract_address = $1 AND ready = true",
                     contract_address)
                 tokens = await self.db.fetch(
                     "SELECT * FROM collectible_tokens "
@@ -569,7 +570,11 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
             if collectible is None:
                 return None
-            result = dict(collectible)
-            result['value'] = hex(len(tokens))
-            result['tokens'] = [dict(t) for t in tokens]
-            return result
+            return {
+                "contract_address": collectible["contract_address"],
+                "name": collectible["name"],
+                "icon": collectible["icon"],
+                "url": collectible["url"],
+                "value": hex(len(tokens)),
+                "tokens": [dict(t) for t in tokens]
+            }
