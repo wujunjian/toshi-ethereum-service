@@ -25,6 +25,7 @@ urls = [
     (r"^/v1/(apn|gcm)/deregister/?$", handlers.PNDeregistrationHandler),
     (r"^/v1/ws/?$", websocket.WebsocketHandler),
     (r"^/v1/tokens/(0x[0-9a-fA-F]{40})/?$", handlers.TokenHandler),
+    (r"^/v1/tokens/(0x[0-9a-fA-F]{40})/(0x[0-9a-fA-F]{40})/?$", handlers.TokenHandler),
     (r"^/v1/tokens/?$", handlers.TokenListHandler),
     (r"^/v1/collectibles/(0x[0-9a-fA-F]{40})/?$", handlers.CollectiblesHandler),
     (r"^/v1/collectibles/(0x[0-9a-fA-F]{40})/(0x[0-9a-fA-F]{40})/?$", handlers.CollectiblesHandler),

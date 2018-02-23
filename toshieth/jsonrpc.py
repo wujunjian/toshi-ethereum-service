@@ -480,24 +480,29 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         log.info("Setting tx '{}' to error due to user cancelation".format(tx['hash']))
         self.tasks.update_transaction(tx['transaction_id'], 'error')
 
-    async def get_tokens(self, address):
+    async def get_token_balances(self, eth_address, token_address=None):
+        if not validate_address(eth_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+        if token_address is not None and not validate_address(token_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
+
         # get token balances
         while True:
             async with self.db:
-                result = await self.db.execute("UPDATE token_registrations SET last_queried = (now() AT TIME ZONE 'utc') WHERE eth_address = $1", address)
+                result = await self.db.execute("UPDATE token_registrations SET last_queried = (now() AT TIME ZONE 'utc') WHERE eth_address = $1", eth_address)
                 await self.db.commit()
             registered = result == "UPDATE 1"
 
             if not registered:
                 try:
-                    with RedisLock(self.redis, "token_balance_update:{}".format(address)):
+                    with RedisLock(self.redis, "token_balance_update:{}".format(eth_address)):
                         try:
-                            await self.tasks.update_token_cache("*", address)
+                            await self.tasks.update_token_cache("*", eth_address)
                         except:
                             log.exception("Error updating token cache")
                             raise
                         async with self.db:
-                            await self.db.execute("INSERT INTO token_registrations (eth_address) VALUES ($1)", address)
+                            await self.db.execute("INSERT INTO token_registrations (eth_address) VALUES ($1)", eth_address)
                             await self.db.commit()
                     break
                 except RedisLockException:
@@ -507,32 +512,61 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             else:
                 break
 
-        async with self.db:
-            balances = await self.db.fetch(
-                "SELECT t.symbol, t.name, t.decimals, b.value, b.contract_address, t.format "
-                "FROM token_balances b "
-                "JOIN tokens t "
-                "ON t.contract_address = b.contract_address "
-                "WHERE eth_address = $1 ORDER BY value DESC", address)
-
-        tokens = []
-        for b in balances:
+        if token_address:
+            async with self.db:
+                token = await self.db.fetchrow(
+                    "SELECT symbol, name, decimals, format "
+                    "FROM tokens WHERE contract_address = $1",
+                    token_address)
+                if token is None:
+                    return None
+                balance = await self.db.fetchval(
+                    "SELECT value "
+                    "FROM token_balances "
+                    "WHERE eth_address = $1 AND contract_address = $2",
+                    eth_address, token_address)
+            if balance is None:
+                balance = "0x0"
             details = {
-                "symbol": b['symbol'],
-                "name": b['name'],
-                "decimals": b['decimals'],
-                "value": b['value'],
-                "contract_address": b['contract_address']
+                "symbol": token['symbol'],
+                "name": token['name'],
+                "decimals": token['decimals'],
+                "value": balance,
+                "contract_address": token_address
             }
-            if b['format'] is not None:
+            if token['format'] is not None:
                 details["icon"] = "{}://{}/token/{}.{}".format(
-                    self.request.protocol, self.request.host, b['contract_address'], b['format'])
+                    self.request.protocol, self.request.host, token_address, token['format'])
             else:
                 details['icon'] = None
+            return details
+        else:
+            async with self.db:
+                balances = await self.db.fetch(
+                    "SELECT t.symbol, t.name, t.decimals, b.value, b.contract_address, t.format "
+                    "FROM token_balances b "
+                    "JOIN tokens t "
+                    "ON t.contract_address = b.contract_address "
+                    "WHERE eth_address = $1 ORDER BY value DESC", eth_address)
 
-            tokens.append(details)
+            tokens = []
+            for b in balances:
+                details = {
+                    "symbol": b['symbol'],
+                    "name": b['name'],
+                    "decimals": b['decimals'],
+                    "value": b['value'],
+                    "contract_address": b['contract_address']
+                }
+                if b['format'] is not None:
+                    details["icon"] = "{}://{}/token/{}.{}".format(
+                        self.request.protocol, self.request.host, b['contract_address'], b['format'])
+                else:
+                    details['icon'] = None
 
-        return tokens
+                tokens.append(details)
+
+            return tokens
 
     async def get_collectibles(self, address, contract_address=None):
 

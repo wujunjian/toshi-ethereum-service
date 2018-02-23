@@ -75,18 +75,23 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
 
 class TokenHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
-    async def get(self, address):
+    async def get(self, eth_address, token_address=None):
 
         self.set_header("Access-Control-Allow-Origin", "*")
         self.set_header("Access-Control-Allow-Headers", "x-requested-with")
         self.set_header('Access-Control-Allow-Methods', 'GET')
 
         try:
-            result = await ToshiEthJsonRPC(None, self.application, self.request).get_tokens(address)
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_token_balances(eth_address, token_address=token_address)
         except JsonRPCError as e:
             raise JSONHTTPError(400, body={'errors': [e.data]})
 
-        self.write({"tokens": result})
+        if token_address:
+            if result is None:
+                raise JSONHTTPError(404)
+            self.write(result)
+        else:
+            self.write({"tokens": result})
 
 
 class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
