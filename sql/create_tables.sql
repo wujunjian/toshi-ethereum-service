@@ -76,11 +76,15 @@ CREATE TABLE IF NOT EXISTS token_balances (
 );
 
 CREATE TABLE IF NOT EXISTS token_transactions (
-    transaction_id BIGSERIAL PRIMARY KEY,
+    transaction_id BIGSERIAL,
+    transaction_log_index INTEGER NOT NULL,
     contract_address VARCHAR NOT NULL,
     from_address VARCHAR NOT NULL,
     to_address VARCHAR NOT NULL,
-    value VARCHAR NOT NULL
+    value VARCHAR NOT NULL,
+    status VARCHAR,
+
+    PRIMARY KEY (transaction_id, transaction_log_index)
 );
 
 CREATE TABLE IF NOT EXISTS token_registrations (
@@ -146,4 +150,4 @@ CREATE INDEX IF NOT EXISTS idx_tokens_contract_address ON tokens (contract_addre
 CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address ON token_balances (eth_address);
 CREATE INDEX IF NOT EXISTS idx_token_registrations_last_queried ON token_registrations (last_queried ASC);
 
-UPDATE database_version SET version_number = 13;
+UPDATE database_version SET version_number = 14;

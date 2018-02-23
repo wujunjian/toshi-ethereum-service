@@ -1,14 +1,18 @@
 import asyncio
 import logging
 import tornado.httpclient
+from ethereum.abi import decode_abi, decode_single
 from toshi.jsonrpc.client import JsonRPCClient
 from toshi.jsonrpc.errors import JsonRPCError
 from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.tasks import TaskDispatcher
 
 from toshi.utils import parse_int
+from toshi.ethereum.utils import data_decoder
 
 from .tasks import TaskListenerApplication
+
+from .constants import TRANSFER_TOPIC, DEPOSIT_TOPIC, WITHDRAWAL_TOPIC, WETH_CONTRACT_ADDRESS
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 1
@@ -167,18 +171,28 @@ class BlockMonitor(TaskListenerApplication):
                     log.info("Processing block {}".format(block['number']))
 
                 if block['logsBloom'] != "0x" + ("0" * 512):
-                    logs = await self.eth.eth_getLogs(fromBlock=block['number'], toBlock=block['number'])
+                    logs_list = await self.eth.eth_getLogs(fromBlock=block['number'],
+                                                           toBlock=block['number'])
+                    logs = {}
+                    for _log in logs_list:
+                        if _log['transactionHash'] not in logs:
+                            logs[_log['transactionHash']] = [_log]
+                        else:
+                            logs[_log['transactionHash']].append(_log)
                 else:
-                    logs = None
+                    logs_list = []
+                    logs = {}
 
                 for tx in block['transactions']:
                     # send notifications to sender and reciever
+                    if tx['hash'] in logs:
+                        tx['logs'] = logs[tx['hash']]
                     await self.process_transaction(tx)
 
-                if logs:
+                if logs_list:
                     # send notifications for anyone registered
                     async with self.connection_pool.acquire() as con:
-                        for event in logs:
+                        for event in logs_list:
                             for topic in event['topics']:
                                 filters = await con.fetch(
                                     "SELECT * FROM filter_registrations WHERE contract_address = $1 AND topic_id = $2",
@@ -375,76 +389,114 @@ class BlockMonitor(TaskListenerApplication):
                 db_tx = None
 
             # if we have a previous transaction, do some checking to see what's going on
+            # see if this is an overwritten transaction
+            # if the status of the old tx was previously an error, we don't care about it
+            # otherwise, we have to notify the interested parties of the overwrite
+
+            if db_tx and db_tx['hash'] != transaction['hash'] and db_tx['status'] != 'error':
+
+                if db_tx['v'] is not None:
+                    log.warning("found overwritten transaction!")
+                    log.warning("tx from: {}".format(from_address))
+                    log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
+                    log.warning("old tx hash: {}".format(db_tx['hash']))
+                    log.warning("new tx hash: {}".format(transaction['hash']))
+
+                self.tasks.update_transaction(db_tx['transaction_id'], 'error')
+                db_tx = None
+
+            # check for erc20 transfers
+            erc20_transfers = []
+            if transaction['blockNumber'] is not None and \
+               'logs' in transaction and \
+               len(transaction['logs']) > 0:
+
+                # find any logs with erc20 token related topics
+                for _log in transaction['logs']:
+                    if len(_log['topics']) > 0:
+                        # Transfer(address,address,uint256)
+                        if _log['topics'][0] == TRANSFER_TOPIC:
+                            # make sure the log address is for one we're interested in
+                            is_known_token = await con.fetchval("SELECT 1 FROM tokens WHERE contract_address = $1", _log['address'])
+                            if not is_known_token:
+                                continue
+                            if len(_log['topics']) < 3 or len(_log['data']) != 66:
+                                log.warning('Got invalid erc20 Transfer event in tx: {}'.format(transaction['hash']))
+                                continue
+                            erc20_from_address = decode_single(('address', '', []), data_decoder(_log['topics'][1]))
+                            erc20_to_address = decode_single(('address', '', []), data_decoder(_log['topics'][2]))
+                            erc20_is_interesting = await con.fetchval(
+                                "SELECT 1 FROM token_registrations "
+                                "WHERE eth_address = $1 OR eth_address = $2",
+                                erc20_from_address, erc20_to_address)
+                            if erc20_is_interesting:
+                                erc20_value = decode_abi(['uint256'], data_decoder(_log['data']))[0]
+
+                                erc20_transfers.append((_log['address'], int(_log['transactionLogIndex'], 16), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
+
+                        # special checks for WETH, since it's rarely 'Transfer'ed, but we
+                        # still need to update it
+                        elif (_log['topics'][0] == DEPOSIT_TOPIC or _log['topics'][0] == WITHDRAWAL_TOPIC) and _log['address'] == WETH_CONTRACT_ADDRESS:
+                            eth_address = decode_single(('address', '', []), data_decoder(_log['topics'][1]))
+                            erc20_is_interesting = await con.fetchval(
+                                "SELECT 1 FROM token_registrations "
+                                "WHERE eth_address = $1",
+                                eth_address)
+                            if erc20_is_interesting:
+                                erc20_value = decode_abi(['uint256'], data_decoder(_log['data']))[0]
+                                if _log['topics'][0] == DEPOSIT_TOPIC:
+                                    erc20_to_address = eth_address
+                                    erc20_from_address = "0x0000000000000000000000000000000000000000"
+                                else:
+                                    erc20_to_address = "0x0000000000000000000000000000000000000000"
+                                    erc20_from_address = eth_address
+                                erc20_transfers.append((WETH_CONTRACT_ADDRESS, int(_log['transactionLogIndex'], 16), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
+
+            elif transaction['blockNumber'] is None and db_tx is None:
+                # transaction is pending, attempt to guess if this is a token
+                # transaction based off it's input
+                if transaction['input']:
+                    data = transaction['input']
+                    if (data.startswith("0xa9059cbb") and len(data) == 138) or (data.startswith("0x23b872dd") and len(data) == 202):
+                        token_value = hex(int(data[-64:], 16))
+                        if data.startswith("0x23b872dd"):
+                            erc20_from_address = "0x" + data[34:74]
+                            erc20_to_address = "0x" + data[98:138]
+                        else:
+                            erc20_from_address = from_address
+                            erc20_to_address = "0x" + data[34:74]
+                        erc20_transfers.append((to_address, 0, erc20_from_address, erc20_to_address, token_value, 'unconfirmed'))
+                    # special WETH handling
+                    elif data == '0xd0e30db0' and transaction['to'] == WETH_CONTRACT_ADDRESS:
+                        erc20_transfers.append((WETH_CONTRACT_ADDRESS, 0, "0x0000000000000000000000000000000000000000", transaction['from'], transaction['value'], 'unconfirmed'))
+                    elif data.startswith('0x2e1a7d4d') and len(data) == 74:
+                        token_value = hex(int(data[-64:], 16))
+                        erc20_transfers.append((WETH_CONTRACT_ADDRESS, 0, transaction['from'], "0x0000000000000000000000000000000000000000", token_value, 'unconfirmed'))
+
             if db_tx:
-                # see if this is an overwritten transaction
-                if db_tx['hash'] != transaction['hash']:
-                    # if the status of the old tx was previously an error, we don't care about it
-                    # otherwise, we have to notify the interested parties of the overwrite
-                    if db_tx['status'] != 'error':
-
-                        if db_tx['v'] is not None:
-                            log.warning("found overwritten transaction!")
-                            log.warning("tx from: {}".format(from_address))
-                            log.warning("nonce: {}".format(parse_int(transaction['nonce'])))
-                            log.warning("old tx hash: {}".format(db_tx['hash']))
-                            log.warning("new tx hash: {}".format(transaction['hash']))
-
-                        self.tasks.update_transaction(db_tx['transaction_id'], 'error')
-                    # fall through to the "new transaction" code
-                else:
-                    self.tasks.update_transaction(
-                        db_tx['transaction_id'],
-                        'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
-                    return
-
-            # check if there is input, and if the input reprensents an erc20
-            # `transfer(address,uint256)` or `transferFrom(address,address,uint256)`
-            # method signature
-            if transaction['input'] and \
-               ((transaction['input'].startswith("0xa9059cbb") and len(transaction['input']) == 138) or \
-                (transaction['input'].startswith("0x23b872dd") and len(transaction['input']) == 202)):
-                # check if the token is a known erc20 token
-                erc20_token = await con.fetchrow("SELECT * FROM tokens WHERE contract_address = $1",
-                                                 to_address)
-                if erc20_token:
-                    if transaction['input'].startswith("0x23b872dd"):
-                        # `transferFrom(address,address,uint256)` token sender is
-                        # the first argument and token receiver is the second
-                        # argument in the input data
-
-                        # NOTE: not sure what is really sensible here, `transferFrom`
-                        # is triggered by having someone give someone else permission
-                        # to transfer their tokens. So the tokens are coming from an
-                        # address that is different to the address of the transaction
-                        # sender. This is not something we have a real use case for
-                        # inside toshi yet, so leaving this behaviour as is for now.
-                        # future implementations might be that we have a 3rd "interested"
-                        # party to send notifications to
-
-                        interested_from_address = "0x" + transaction['input'][34:74]
-                        interested_to_address = "0x" + transaction['input'][98:138]
-                    else:
-                        # `transfer(address,uint256)` token receiver is the first argument in the input data
-                        interested_from_address = from_address
-                        interested_to_address = "0x" + transaction['input'][34:74]
-                else:
-                    interested_to_address = to_address
-                    interested_from_address = from_address
+                is_interesting = True
             else:
-                erc20_token = False
-                interested_to_address = to_address
-                interested_from_address = from_address
-
-            # find out if there is anyone interested in this transaction
-            is_interesting = await con.fetchrow("SELECT 1 FROM notification_registrations "
-                                                "WHERE eth_address = $1 OR eth_address = $2",
-                                                interested_to_address, interested_from_address)
-            if not is_interesting and erc20_token:
-                is_interesting = await con.fetchrow("SELECT 1 FROM token_registrations "
+                # find out if there is anyone interested in this transaction
+                is_interesting = await con.fetchval("SELECT 1 FROM notification_registrations "
                                                     "WHERE eth_address = $1 OR eth_address = $2",
-                                                    interested_to_address, interested_from_address)
+                                                    to_address, from_address)
+            if not is_interesting and len(erc20_transfers) > 0:
+                for _, _, erc20_from_address, erc20_to_address, _, _ in erc20_transfers:
+                    is_interesting = await con.fetchval("SELECT 1 FROM notification_registrations "
+                                                        "WHERE eth_address = $1 OR eth_address = $2",
+                                                        erc20_to_address, erc20_from_address)
+                    if is_interesting:
+                        break
+                    is_interesting = await con.fetchval("SELECT 1 FROM token_registrations "
+                                                        "WHERE eth_address = $1 OR eth_address = $2",
+                                                        erc20_to_address, erc20_from_address)
+                    if is_interesting:
+                        break
 
-            if is_interesting:
+            if not is_interesting:
+                return
+
+            if db_tx is None:
                 # if so, add it to the database and trigger an update
                 # add tx to database
                 db_tx = await con.fetchrow(
@@ -458,21 +510,29 @@ class BlockMonitor(TaskListenerApplication):
                     hex(parse_int(transaction['value'])), hex(parse_int(transaction['gas'])), hex(parse_int(transaction['gasPrice'])),
                     transaction['input'])
 
-                if erc20_token:
-                    # token transfer value is the final uint256 value in the transaction input data
-                    token_value = int(transaction['input'][-64:], 16)
+            for erc20_contract_address, transaction_log_index, erc20_from_address, erc20_to_address, erc20_value, erc20_status in erc20_transfers:
+                is_interesting = await con.fetchval("SELECT 1 FROM notification_registrations "
+                                                    "WHERE eth_address = $1 OR eth_address = $2",
+                                                    erc20_to_address, erc20_from_address)
+                if not is_interesting:
+                    is_interesting = await con.fetchrow("SELECT 1 FROM token_registrations "
+                                                        "WHERE eth_address = $1 OR eth_address = $2",
+                                                        erc20_to_address, erc20_from_address)
+
+                if is_interesting:
                     await con.execute(
                         "INSERT INTO token_transactions "
-                        "(transaction_id, contract_address, from_address, to_address, value) "
-                        "VALUES ($1, $2, $3, $4, $5)",
-                        db_tx['transaction_id'], erc20_token['contract_address'],
-                        interested_from_address, interested_to_address, hex(token_value))
+                        "(transaction_id, transaction_log_index, contract_address, from_address, to_address, value, status) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                        "ON CONFLICT (transaction_id, transaction_log_index) DO UPDATE "
+                        "SET from_address = EXCLUDED.from_address, to_address = EXCLUDED.to_address, value = EXCLUDED.value",
+                        db_tx['transaction_id'], transaction_log_index, erc20_contract_address,
+                        erc20_from_address, erc20_to_address, erc20_value, erc20_status)
 
-                self.tasks.update_transaction(
-                    db_tx['transaction_id'],
-                    'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
-                return db_tx['transaction_id']
-            return
+            self.tasks.update_transaction(
+                db_tx['transaction_id'],
+                'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
+            return db_tx['transaction_id']
 
     @log_unhandled_exceptions(logger=log)
     async def sanity_check(self):

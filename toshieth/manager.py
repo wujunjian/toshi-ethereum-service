@@ -20,6 +20,7 @@ from toshi.ethereum.tx import (
 from toshi.ethereum.utils import data_decoder, data_encoder, decode_single_address
 
 from toshieth.tasks import TaskListenerApplication
+from toshieth.constants import TRANSFER_TOPIC, DEPOSIT_TOPIC, WITHDRAWAL_TOPIC, WETH_CONTRACT_ADDRESS
 
 log = logging.getLogger("toshieth.manager")
 
@@ -298,8 +299,8 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             if tx is None or tx['status'] == status:
                 return
 
-            token_tx = await self.db.fetchrow(
-                "SELECT tok.symbol, tok.name, tok.decimals, tx.contract_address, tx.value, tx.from_address, tx.to_address "
+            token_txs = await self.db.fetch(
+                "SELECT tok.symbol, tok.name, tok.decimals, tx.contract_address, tx.value, tx.from_address, tx.to_address, tx.transaction_log_index, tx.status "
                 "FROM token_transactions tx "
                 "JOIN tokens tok "
                 "ON tok.contract_address = tx.contract_address "
@@ -340,38 +341,61 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # there's already been a tx for this so no need to send another
             return
 
+        messages = []
+
         # check if this is an erc20 transaction, if so use those values
-        if token_tx:
-            from_address = token_tx['from_address']
-            to_address = token_tx['to_address']
+        if token_txs:
             if status == 'confirmed':
-                # check transaction receipt to make sure the transfer was successful
                 tx_receipt = await self.eth.eth_getTransactionReceipt(tx['hash'])
-                has_transfer_event = False
-                if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
-                    for _log in tx_receipt['logs']:
-                        if len(_log['topics']) > 2:
-                            if _log['topics'][0] == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' and \
-                               decode_single_address(_log['topics'][1]) == from_address and \
-                               decode_single_address(_log['topics'][2]) == to_address:
-                                has_transfer_event = True
-                                break
-                if not has_transfer_event:
-                    # there was no Transfer event matching this transaction
-                    status = 'error'
-                else:
-                    self.tasks.update_token_cache(token_tx['contract_address'],
-                                                  from_address,
-                                                  to_address)
-            data = {
-                "txHash": tx['hash'],
-                "fromAddress": from_address,
-                "toAddress": to_address,
-                "status": status,
-                "value": token_tx['value'],
-                "contractAddress": token_tx['contract_address']
-            }
-            message = "SOFA::Payment:" + json_encode(data)
+                if tx_receipt is None:
+                    log.error("Failed to get transaction receipt for confirmed transaction: {}".format(tx_receipt))
+                    # requeue to try again
+                    self.tasks.update_transaction(transaction_id, status)
+                    return
+            for token_tx in token_txs:
+                token_tx_status = status
+                from_address = token_tx['from_address']
+                to_address = token_tx['to_address']
+                if status == 'confirmed':
+                    # check transaction receipt to make sure the transfer was successful
+                    has_transfer_event = False
+                    if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
+                        for _log in tx_receipt['logs']:
+                            if len(_log['topics']) > 2:
+                                if _log['topics'][0] == TRANSFER_TOPIC and \
+                                   decode_single_address(_log['topics'][1]) == from_address and \
+                                   decode_single_address(_log['topics'][2]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                            elif _log['address'] == WETH_CONTRACT_ADDRESS:
+                                if _log['topics'][0] == DEPOSIT_TOPIC and decode_single_address(_log['topics'][1]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                                elif _log['topics'][0] == WITHDRAWAL_TOPIC and decode_single_address(_log['topics'][1]) == from_address:
+                                    has_transfer_event = True
+                                    break
+                    if not has_transfer_event:
+                        # there was no Transfer event matching this transaction
+                        token_tx_status = 'error'
+                    else:
+                        self.tasks.update_token_cache(token_tx['contract_address'],
+                                                      from_address,
+                                                      to_address)
+                data = {
+                    "txHash": tx['hash'],
+                    "fromAddress": from_address,
+                    "toAddress": to_address,
+                    "status": token_tx_status,
+                    "value": token_tx['value'],
+                    "contractAddress": token_tx['contract_address']
+                }
+                messages.append((from_address, to_address, token_tx_status, "SOFA::Payment:" + json_encode(data)))
+                async with self.db:
+                    await self.db.execute(
+                        "UPDATE token_transactions SET status = $1 "
+                        "WHERE transaction_id = $2 AND transaction_log_index = $3",
+                        token_tx_status, tx['transaction_id'], token_tx['transaction_log_index'])
+                    await self.db.commit()
 
         else:
             from_address = tx['from_address']
@@ -379,30 +403,31 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
                                   fromAddress=from_address, toAddress=to_address,
                                   networkId=self.application.config['ethereum']['network_id'])
-            message = payment.render()
+            messages.append((from_address, to_address, status, payment.render()))
 
         # figure out what addresses need pns
         # from address always needs a pn
-        self.tasks.send_notification(from_address, message)
+        for from_address, to_address, status, message in messages:
+            self.tasks.send_notification(from_address, message)
 
-        # no need to check to_address for contract deployments
-        if to_address == "0x":
-            # TODO: update any notification registrations to be marked as a contract
-            return
+            # no need to check to_address for contract deployments
+            if to_address == "0x":
+                # TODO: update any notification registrations to be marked as a contract
+                return
 
-        # check if this is a brand new tx with no status
-        if tx['status'] is None:
-            # if an error has happened before any PNs have been sent
-            # we only need to send the error to the sender, thus we
-            # only add 'to' if the new status is not an error
-            if status != 'error':
+            # check if this is a brand new tx with no status
+            if tx['status'] is None:
+                # if an error has happened before any PNs have been sent
+                # we only need to send the error to the sender, thus we
+                # only add 'to' if the new status is not an error
+                if status != 'error':
+                    self.tasks.send_notification(to_address, message)
+            else:
                 self.tasks.send_notification(to_address, message)
-        else:
-            self.tasks.send_notification(to_address, message)
 
-        # trigger a processing of the to_address's queue incase it has
-        # things waiting on this transaction
-        self.tasks.process_transaction_queue(to_address)
+            # trigger a processing of the to_address's queue incase it has
+            # things waiting on this transaction
+            self.tasks.process_transaction_queue(to_address)
 
     async def sanity_check(self, frequency):
         async with self.db:

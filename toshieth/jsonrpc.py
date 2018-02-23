@@ -405,9 +405,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                         erc20_to_address = "0x" + data[34:74]
                     await self.db.execute(
                         "INSERT INTO token_transactions "
-                        "(transaction_id, contract_address, from_address, to_address, value) "
-                        "VALUES ($1, $2, $3, $4, $5)",
-                        db_tx['transaction_id'], erc20_token['contract_address'],
+                        "(transaction_id, transaction_log_index, contract_address, from_address, to_address, value) "
+                        "VALUES ($1, $2, $3, $4, $5, $6)",
+                        db_tx['transaction_id'], 0, erc20_token['contract_address'],
                         erc20_from_address, erc20_to_address, hex(token_value))
 
                 await self.db.commit()

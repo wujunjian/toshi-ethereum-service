@@ -13,6 +13,8 @@ from toshi.ethereum.utils import private_key_to_address, data_decoder
 from toshi.ethereum.contract import Contract
 
 ERC20_CONTRACT = open(os.path.join(os.path.dirname(__file__), "erc20.sol")).read()
+SIMPLE_EXCHANGE_CONTRACT = open(os.path.join(os.path.dirname(__file__), "simpleexchange.sol")).read()
+WETH_CONTRACT = open(os.path.join(os.path.dirname(__file__), "weth9.sol")).read()
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_PRIVATE_KEY_2 = data_decoder("0x8945608e66736aceb34a83f94689b4e98af497ffc9dc2004a93824096330fa77")
@@ -291,3 +293,451 @@ class ERC20Test(EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 200)
         body = json_decode(resp.body)
         self.assertEqual(len(body['tokens']), 2)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_weth_deposits_and_withdrawals(self, *, parity, push_client, monitor):
+        """Tests the special handling of the WETH contract's deposit and withdrawal methods"""
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        weth = await Contract.from_source_code(WETH_CONTRACT.encode('utf8'), "WETH9", deployer_private_key=FAUCET_PRIVATE_KEY)
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO tokens (contract_address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+                              weth.address, "WETH", "Wrapped Ether", 18)
+
+        # monkey patch WETH contract variable
+        import toshieth.constants
+        toshieth.constants.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.manager
+        toshieth.manager.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.monitor
+        toshieth.monitor.WETH_CONTRACT_ADDRESS = weth.address
+
+        await self.faucet(TEST_ADDRESS, 10 * 10 ** 18)
+
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY, method="POST", body={
+            "registration_id": TEST_APN_ID
+        })
+        self.assertEqual(resp.code, 204)
+
+        # make sure tokens are initiated
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+
+        # deposit ether into WETH
+        tx_hash = await self.send_tx(TEST_PRIVATE_KEY, weth.address, 5 * 10 ** 18, data="0xd0e30db0")
+        await self.wait_on_tx_confirmation(tx_hash)
+
+        self.assertEqual(await weth.balanceOf(TEST_ADDRESS), 5 * 10 ** 18)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['symbol'], "WETH")
+        self.assertEqual(body['tokens'][0]['value'], hex(5 * 10 ** 18))
+
+        resp = await self.fetch("/balance/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertLess(int(body['confirmed_balance'], 16), 5 * 10 ** 18)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_contract_internal_erc20_transfers(self, *, parity, push_client, monitor):
+        """Tests that transfers triggered by another contract (e.g. an exchange) trigger balance updates for the tokens involved"""
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        zrx = await self.deploy_erc20_contract("ZRX", "0x", 18)
+        tok = await self.deploy_erc20_contract("TOK", "TOK Token", 18)
+        ken = await self.deploy_erc20_contract("KEN", "KEN Token", 18)
+
+        exchange = await Contract.from_source_code(SIMPLE_EXCHANGE_CONTRACT.encode('utf8'), "SimpleExchange", constructor_data=[zrx.address], deployer_private_key=FAUCET_PRIVATE_KEY)
+
+        await self.faucet(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS_2, 10 * 10 ** 18)
+
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+        await tok.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+        await ken.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+
+        await zrx.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await zrx.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        await tok.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await tok.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        await ken.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await ken.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        await exchange.createOrder.set_sender(TEST_PRIVATE_KEY)(
+            ken.address, 5 * 10 ** 18, tok.address, 5 * 10 ** 18)
+        await exchange.fillOrder.set_sender(TEST_PRIVATE_KEY_2)(TEST_ADDRESS)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS), 9 * 10 ** 18)
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS_2), 9 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS), 5 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+        self.assertEqual(await ken.balanceOf(TEST_ADDRESS), 5 * 10 ** 18)
+        self.assertEqual(await ken.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 3)
+
+        has_tok = has_ken = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'KEN':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_ken = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and has_ken)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 3)
+
+        has_tok = has_ken = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'KEN':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_ken = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and has_ken)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_contract_internal_erc20_transfers_with_weth(self, *, parity, push_client, monitor):
+        """Tests that transfers triggered by another contract (e.g. an exchange) trigger balance updates for the tokens involved, using WETH"""
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        zrx = await self.deploy_erc20_contract("ZRX", "0x", 18)
+        tok = await self.deploy_erc20_contract("TOK", "TOK Token", 18)
+        weth = await Contract.from_source_code(WETH_CONTRACT.encode('utf8'), "WETH9", deployer_private_key=FAUCET_PRIVATE_KEY)
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO tokens (contract_address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+                              weth.address, "WETH", "Wrapped Ether", 18)
+
+        # monkey patch WETH contract variable
+        import toshieth.constants
+        toshieth.constants.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.manager
+        toshieth.manager.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.monitor
+        toshieth.monitor.WETH_CONTRACT_ADDRESS = weth.address
+
+        exchange = await Contract.from_source_code(SIMPLE_EXCHANGE_CONTRACT.encode('utf8'), "SimpleExchange", constructor_data=[zrx.address], deployer_private_key=FAUCET_PRIVATE_KEY)
+
+        await self.faucet(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS_2, 10 * 10 ** 18)
+
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+        await tok.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+        await weth.deposit.set_sender(TEST_PRIVATE_KEY)(value=5 * 10 ** 18)
+
+        await zrx.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await zrx.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        await tok.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await tok.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        await weth.approve.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await weth.approve.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        await exchange.createOrder.set_sender(TEST_PRIVATE_KEY)(
+            weth.address, 5 * 10 ** 18, tok.address, 5 * 10 ** 18)
+        await exchange.fillOrder.set_sender(TEST_PRIVATE_KEY_2)(TEST_ADDRESS)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS), 9 * 10 ** 18)
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS_2), 9 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS), 5 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+        self.assertEqual(await weth.balanceOf(TEST_ADDRESS), 0)
+        self.assertEqual(await weth.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and not has_weth)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 3)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and has_weth)
+
+        resp = await self.fetch("/balance/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        balance_before_withdral = int(body['confirmed_balance'], 16)
+
+        await weth.withdraw.set_sender(TEST_PRIVATE_KEY_2)(5 * 10 ** 18)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and not has_weth)
+        resp = await self.fetch("/balance/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+
+        balance_after_withdral = int(body['confirmed_balance'], 16)
+        self.assertLess(balance_before_withdral, balance_after_withdral)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_contract_internal_erc20_transfers_with_weth_through_toshi(self, *, parity, push_client, monitor):
+        """Tests that transfers triggered by another contract (e.g. an exchange) trigger balance updates for the tokens involved, using WETH, sending all calls through toshi http endpoints"""
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        zrx = await self.deploy_erc20_contract("ZRX", "0x", 18)
+        tok = await self.deploy_erc20_contract("TOK", "TOK Token", 18)
+        weth = await Contract.from_source_code(WETH_CONTRACT.encode('utf8'), "WETH9", deployer_private_key=FAUCET_PRIVATE_KEY)
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO tokens (contract_address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+                              weth.address, "WETH", "Wrapped Ether", 18)
+
+        # monkey patch WETH contract variable
+        import toshieth.constants
+        toshieth.constants.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.manager
+        toshieth.manager.WETH_CONTRACT_ADDRESS = weth.address
+        import toshieth.monitor
+        toshieth.monitor.WETH_CONTRACT_ADDRESS = weth.address
+
+        exchange = await Contract.from_source_code(SIMPLE_EXCHANGE_CONTRACT.encode('utf8'), "SimpleExchange", constructor_data=[zrx.address], deployer_private_key=FAUCET_PRIVATE_KEY)
+
+        await self.faucet(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS_2, 10 * 10 ** 18)
+
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await zrx.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+        await tok.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, 10 * 10 ** 18)
+
+        raw_tx = await weth.deposit.get_raw_tx.set_sender(TEST_PRIVATE_KEY)(value=5 * 10 ** 18)
+        await self.send_raw_tx(raw_tx)
+
+        raw_tx = await zrx.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+        raw_tx = await zrx.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+
+        raw_tx = await tok.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+        raw_tx = await tok.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+
+        raw_tx = await weth.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+        raw_tx = await weth.approve.get_raw_tx.set_sender(TEST_PRIVATE_KEY_2)(exchange.address, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        await self.send_raw_tx(raw_tx)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        raw_tx = await exchange.createOrder.get_raw_tx.set_sender(TEST_PRIVATE_KEY)(
+            weth.address, 5 * 10 ** 18, tok.address, 5 * 10 ** 18)
+        await self.send_raw_tx(raw_tx)
+        raw_tx = await exchange.fillOrder.get_raw_tx.set_sender(TEST_PRIVATE_KEY_2)(TEST_ADDRESS)
+        await self.send_raw_tx(raw_tx)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS), 9 * 10 ** 18)
+        self.assertEqual(await zrx.balanceOf(TEST_ADDRESS_2), 9 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS), 5 * 10 ** 18)
+        self.assertEqual(await tok.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+        self.assertEqual(await weth.balanceOf(TEST_ADDRESS), 0)
+        self.assertEqual(await weth.balanceOf(TEST_ADDRESS_2), 5 * 10 ** 18)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and not has_weth)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 3)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and has_weth)
+
+        resp = await self.fetch("/balance/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        balance_before_withdral = int(body['confirmed_balance'], 16)
+
+        raw_tx = await weth.withdraw.get_raw_tx.set_sender(TEST_PRIVATE_KEY_2)(5 * 10 ** 18)
+        await self.send_raw_tx(raw_tx)
+
+        await monitor.filter_poll()
+        await asyncio.sleep(0.1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2, body)
+
+        has_tok = has_weth = has_zrx = False
+        for token in body['tokens']:
+            if token['symbol'] == 'TOK':
+                self.assertEqual(token['value'], hex(5 * 10 ** 18))
+                has_tok = True
+            elif token['symbol'] == 'WETH':
+                has_weth = True
+            elif token['symbol'] == 'ZRX':
+                self.assertEqual(token['value'], hex(9 * 10 ** 18))
+                has_zrx = True
+            else:
+                self.fail("unexpected token symbol")
+
+        self.assertTrue(has_tok and has_zrx and not has_weth)
+        resp = await self.fetch("/balance/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+
+        balance_after_withdral = int(body['confirmed_balance'], 16)
+        self.assertLess(balance_before_withdral, balance_after_withdral)

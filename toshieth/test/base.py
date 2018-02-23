@@ -33,32 +33,24 @@ class EthServiceBaseTest(AsyncHandlerTest):
         # add fake redis config to make sure task_listener is created
         super().setUp(extraconf={'redis': {'unix_socket_path': '/dev/null', 'db': '0'}})
 
-    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None, check_db=False):
+    async def wait_on_tx_confirmation(self, tx_hash, interval_check_callback=None):
         while True:
-            resp = await self.fetch("/tx/{}".format(tx_hash))
-            self.assertEqual(resp.code, 200)
-            body = json_decode(resp.body)
-            if body is None or body['blockNumber'] is None:
-                if interval_check_callback:
-                    f = interval_check_callback()
-                    if asyncio.iscoroutine(f):
-                        await f
-                await asyncio.sleep(0.1)
-            else:
-                if check_db:
-                    while True:
-                        async with self.pool.acquire() as con:
-                            row = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND status = 'confirmed'", tx_hash)
-                        if row:
-                            break
-                        await asyncio.sleep(0.01)
-                # make sure the last_blocknumber has been saved to the db before returning
-                while True:
-                    async with self.pool.acquire() as con:
-                        row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
-                    if row and row['blocknumber'] >= int(body['blockNumber'], 16):
-                        return body
-                    await asyncio.sleep(0.01)
+            async with self.pool.acquire() as con:
+                row = await con.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND status = 'confirmed'", tx_hash)
+            if row:
+                break
+            if interval_check_callback:
+                f = interval_check_callback()
+                if asyncio.iscoroutine(f):
+                    await f
+            await asyncio.sleep(0.01)
+        # make sure the last_blocknumber has been saved to the db before returning
+        while True:
+            async with self.pool.acquire() as con:
+                blocknumber = await con.fetchval("SELECT blocknumber FROM last_blocknumber")
+            if blocknumber and blocknumber >= row['blocknumber']:
+                return row
+            await asyncio.sleep(0.01)
 
     async def get_tx_skel(self, from_key, to_addr, val, nonce=None, gas_price=None, gas=None, data=None, token_address=None, expected_response_code=200):
         from_addr = private_key_to_address(from_key)
@@ -87,27 +79,26 @@ class EthServiceBaseTest(AsyncHandlerTest):
             return tx
         return None
 
-    async def sign_and_send_tx(self, from_key, tx, expected_response_code=200):
+    async def sign_and_send_tx(self, from_key, tx, expected_response_code=200, wait_on_tx_confirmation=False):
 
         tx = sign_transaction(tx, from_key)
-
-        body = {
-            "tx": tx
-        }
-
-        resp = await self.fetch("/tx", method="POST", body=body)
-
-        self.assertResponseCodeEqual(resp, expected_response_code, resp.body)
-        if expected_response_code == 200:
-            body = json_decode(resp.body)
-            tx_hash = body['tx_hash']
-            return tx_hash
-        return None
+        return await self.send_raw_tx(tx, expected_response_code=expected_response_code, wait_on_tx_confirmation=wait_on_tx_confirmation)
 
     async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None, token_address=None):
 
         tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price, token_address=token_address)
         return await self.sign_and_send_tx(from_key, tx)
+
+    async def send_raw_tx(self, tx, wait_on_tx_confirmation=True, expected_response_code=200):
+        resp = await self.fetch("/tx", method="POST", body={"tx": tx})
+        self.assertResponseCodeEqual(resp, expected_response_code, resp.body)
+        if expected_response_code == 200:
+            body = json_decode(resp.body)
+            tx_hash = body['tx_hash']
+            if wait_on_tx_confirmation:
+                await self.wait_on_tx_confirmation(tx_hash)
+            return tx_hash
+        return None
 
     async def faucet(self, to_address, value):
         tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, to_address, value)
