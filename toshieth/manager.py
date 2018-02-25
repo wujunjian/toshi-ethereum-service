@@ -389,13 +389,21 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     "value": token_tx['value'],
                     "contractAddress": token_tx['contract_address']
                 }
-                messages.append((from_address, to_address, token_tx_status, "SOFA::Payment:" + json_encode(data)))
+                messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment:" + json_encode(data)))
                 async with self.db:
                     await self.db.execute(
                         "UPDATE token_transactions SET status = $1 "
                         "WHERE transaction_id = $2 AND transaction_log_index = $3",
                         token_tx_status, tx['transaction_id'], token_tx['transaction_log_index'])
                     await self.db.commit()
+
+                # if a WETH deposit or withdrawal, we need to let the client know to
+                # update their ETHER balance using a normal SOFA:Payment
+                if token_tx['contract_address'] == WETH_CONTRACT_ADDRESS and (from_address == "0x0000000000000000000000000000000000000000" or to_address == "0x0000000000000000000000000000000000000000"):
+                    payment = SofaPayment(value=parse_int(token_tx['value']), txHash=tx['hash'],
+                                          status=status, fromAddress=from_address, toAddress=to_address,
+                                          networkId=self.application.config['ethereum']['network_id'])
+                    messages.append((from_address, to_address, status, payment.render()))
 
         else:
             from_address = tx['from_address']
