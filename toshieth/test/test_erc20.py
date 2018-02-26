@@ -101,12 +101,24 @@ class ERC20Test(EthServiceBaseTest):
         # test that receiving new tokens triggers a PN
         for token in tokens.values():
             contract = token['contract']
-            await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'], wait_for_confirmation=False)
-            while True:
-                pn = await push_client.get()
-                sofa = parse_sofa_message(pn[1]['message'])
-                if sofa['status'] == 'confirmed':
-                    break
+            # first test PNs from external transactions
+            tx_hash = await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'], wait_for_confirmation=False)
+            pn = await push_client.get()
+            sofa = parse_sofa_message(pn[1]['message'])
+            self.assertEqual(sofa['status'], 'confirmed')
+            self.assertEqual(sofa['txHash'], tx_hash)
+            self.assertEqual(sofa.type, "TokenPayment")
+            self.assertEqual(sofa['contractAddress'], contract.address)
+            self.assertEqual(sofa['value'], hex(10 ** token['decimals']))
+            self.assertEqual(sofa['toAddress'], TEST_ADDRESS)
+            # now test PNs from toshi generated transactions
+            raw_tx = await contract.transfer.get_raw_tx.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'])
+            tx_hash = await self.send_raw_tx(raw_tx, wait_on_tx_confirmation=False)
+            pn = await push_client.get()
+            sofa = parse_sofa_message(pn[1]['message'])
+            self.assertEqual(sofa['status'], 'confirmed')
+            self.assertEqual(sofa['txHash'], tx_hash)
+            self.assertEqual(sofa.type, "TokenPayment")
             self.assertEqual(sofa['contractAddress'], contract.address)
             self.assertEqual(sofa['value'], hex(10 ** token['decimals']))
             self.assertEqual(sofa['toAddress'], TEST_ADDRESS)
@@ -114,7 +126,7 @@ class ERC20Test(EthServiceBaseTest):
             async with self.pool.acquire() as con:
                 balance = await con.fetchrow("SELECT * FROM token_balances WHERE eth_address = $1 AND contract_address = $2",
                                              TEST_ADDRESS, contract.address)
-            self.assertEqual(int(balance['value'], 16), (10 ** token['decimals']) * (2 if token['symbol'] != token_args[-1][0] else 1),
+            self.assertEqual(int(balance['value'], 16), (10 ** token['decimals']) * (3 if token['symbol'] != token_args[-1][0] else 2),
                              "invalid balance after updating {} token".format(token['symbol']))
 
     @gen_test(timeout=60)

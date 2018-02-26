@@ -381,15 +381,16 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                         self.tasks.update_token_cache(token_tx['contract_address'],
                                                       from_address,
                                                       to_address)
-                data = {
-                    "txHash": tx['hash'],
-                    "fromAddress": from_address,
-                    "toAddress": to_address,
-                    "status": token_tx_status,
-                    "value": token_tx['value'],
-                    "contractAddress": token_tx['contract_address']
-                }
-                messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment:" + json_encode(data)))
+                if token_tx_status == 'confirmed':
+                    data = {
+                        "txHash": tx['hash'],
+                        "fromAddress": from_address,
+                        "toAddress": to_address,
+                        "status": token_tx_status,
+                        "value": token_tx['value'],
+                        "contractAddress": token_tx['contract_address']
+                    }
+                    messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment:" + json_encode(data)))
                 async with self.db:
                     await self.db.execute(
                         "UPDATE token_transactions SET status = $1 "
