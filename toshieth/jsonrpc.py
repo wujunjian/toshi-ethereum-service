@@ -547,7 +547,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     "FROM token_balances b "
                     "JOIN tokens t "
                     "ON t.contract_address = b.contract_address "
-                    "WHERE eth_address = $1 ORDER BY value DESC", eth_address)
+                    "WHERE eth_address = $1 ORDER BY t.symbol", eth_address)
 
             tokens = []
             for b in balances:
