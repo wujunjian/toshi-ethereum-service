@@ -279,6 +279,10 @@ class WebsocketNotificationHandler(TaskHandler):
 
     async def send_notification(self, subscription_id, message):
         if subscription_id in self.application.callbacks:
+            # ignore TokenPayments sent to websockets for now
+            # as it currently breaks bots
+            if message.startswith("SOFA::TokenPayment:"):
+                return
             for callback in self.application.callbacks[subscription_id]:
                 try:
                     f = callback(subscription_id, message)

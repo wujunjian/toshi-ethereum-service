@@ -6,6 +6,7 @@ import toshieth.push_service
 import toshieth.collectibles.erc721
 
 from toshi.test.base import AsyncHandlerTest
+from toshi.test.base import ToshiWebSocketJsonRPCClient
 from toshieth.app import Application, urls
 from tornado.escape import json_decode
 
@@ -104,6 +105,11 @@ class EthServiceBaseTest(AsyncHandlerTest):
         tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, to_address, value)
         await self.wait_on_tx_confirmation(tx_hash)
         return tx_hash
+
+    async def websocket_connect(self, signing_key):
+        con = ToshiWebSocketJsonRPCClient(self.get_url("/ws"), signing_key=signing_key)
+        await con.connect()
+        return con
 
     @property
     def network_id(self):

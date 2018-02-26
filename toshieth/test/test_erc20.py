@@ -741,3 +741,32 @@ class ERC20Test(EthServiceBaseTest):
 
         balance_after_withdral = int(body['confirmed_balance'], 16)
         self.assertLess(balance_before_withdral, balance_after_withdral)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True)
+    async def test_websockets_dont_see_token_pns(self, *, parity, push_client, monitor):
+        """Many bots are broken by token txs right now as the sofa-js library throws an
+        error on invalid sofa types. Making sure bots aren't effected by this change
+        until we've had time to update the libraries and important bots"""
+
+        os.environ['ETHEREUM_NODE_URL'] = parity.dsn()['url']
+
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS, 10 ** 18)
+
+        ws_con = await self.websocket_connect(TEST_PRIVATE_KEY_2)
+        await ws_con.call("subscribe", [TEST_ADDRESS_2])
+
+        resp = await self.fetch_signed("/apn/register", signing_key=TEST_PRIVATE_KEY_2, method="POST", body={
+            "registration_id": TEST_APN_ID
+        })
+        self.assertEqual(resp.code, 204)
+
+        await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 5 * 10 ** 18, token_address=contract.address)
+
+        pn = await push_client.get()
+        self.assertIsNotNone(pn)
+
+        result = await ws_con.read(timeout=1)
+        self.assertIsNone(result)

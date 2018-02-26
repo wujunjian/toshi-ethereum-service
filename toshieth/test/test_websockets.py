@@ -1,9 +1,7 @@
-import asyncio
 import os
 import time
 import random
 from datetime import datetime
-from toshi.test.base import ToshiWebSocketJsonRPCClient
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
 from tornado.testing import gen_test
 from toshi.test.ethereum.faucet import FaucetMixin
@@ -20,11 +18,6 @@ from toshieth.test.test_transaction import (
 )
 
 class WebsocketTest(FaucetMixin, EthServiceBaseTest):
-
-    async def websocket_connect(self, signing_key):
-        con = ToshiWebSocketJsonRPCClient(self.get_url("/ws"), signing_key=signing_key)
-        await con.connect()
-        return con
 
     @gen_test(timeout=60)
     @requires_full_stack
