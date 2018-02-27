@@ -143,6 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_transactions_from_address_nonce ON transactions (
 
 CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notification_registrations (eth_address);
 
+CREATE INDEX IF NOT EXISTS idx_transactions_status_v_created ON transactions (status NULLS FIRST, v NULLS LAST, created DESC);
+
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_contract_address_topic ON filter_registrations (contract_address, topic_id);
 CREATE INDEX IF NOT EXISTS idx_filter_registrations_filter_id_registration_id ON filter_registrations (filter_id, registration_id);
 
@@ -150,4 +152,4 @@ CREATE INDEX IF NOT EXISTS idx_tokens_contract_address ON tokens (contract_addre
 CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address ON token_balances (eth_address);
 CREATE INDEX IF NOT EXISTS idx_token_registrations_last_queried ON token_registrations (last_queried ASC);
 
-UPDATE database_version SET version_number = 14;
+UPDATE database_version SET version_number = 15;
