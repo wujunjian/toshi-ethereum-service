@@ -587,7 +587,10 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         for contract_address, eth_address, f in futures:
             try:
                 value = f.result()
-                if value == "0x0000000000000000000000000000000000000000000000000000000000000000":
+                # value of "0x" means something failed with the contract call
+                if value == "0x0000000000000000000000000000000000000000000000000000000000000000" or value == "0x":
+                    if value == "0x":
+                        log.warning("calling balanceOf for contract {} failed".format(contract_address))
                     bulk_delete.append((contract_address, eth_address))
                 else:
                     value = hex(parse_int(value))  # remove hex padding of value
