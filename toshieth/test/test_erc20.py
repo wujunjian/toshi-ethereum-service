@@ -173,8 +173,7 @@ class ERC20Test(EthServiceBaseTest):
         # test sending new tokens via skel
         await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 5 * 10 ** 18, token_address=contract.address)
 
-        # wait for unconfirmed and confirmed PN, otherwise the contract send will overwrite it (TODO)
-        await push_client.get()
+        # wait for confirmed PN, otherwise the contract send will overwrite it (TODO)
         await push_client.get()
         # randomly the balance update isn't complete right after the PNs are sent
         await asyncio.sleep(0.1)
@@ -226,16 +225,22 @@ class ERC20Test(EthServiceBaseTest):
         # process pending transactions
         await monitor.filter_poll()
 
+        await self.wait_on_tx_confirmation(tx_hash)
+        async with self.pool.acquire() as con:
+            status = await con.fetchval("SELECT tk.status FROM transactions tx JOIN token_transactions tk ON tx.transaction_id = tk.transaction_id WHERE tx.hash = $1", tx_hash)
+        self.assertEqual(status, 'error')
+
+        # NOTE: no PNs are currently sent unless they are confirmed
         # wait for unconfirmed
-        pn = await push_client.get()
-        sofa = parse_sofa_message(pn[1]['message'])
-        self.assertEqual(sofa['status'], 'unconfirmed')
-        self.assertEqual(sofa['value'], hex(20 * 10 ** 18))
-        self.assertEqual(sofa['txHash'], tx_hash)
-        pn = await push_client.get()
-        sofa = parse_sofa_message(pn[1]['message'])
-        self.assertEqual(sofa['status'], 'error')
-        self.assertEqual(sofa['txHash'], tx_hash)
+        # pn = await push_client.get()
+        # sofa = parse_sofa_message(pn[1]['message'])
+        # self.assertEqual(sofa['status'], 'unconfirmed')
+        # self.assertEqual(sofa['value'], hex(20 * 10 ** 18))
+        # self.assertEqual(sofa['txHash'], tx_hash)
+        # pn = await push_client.get()
+        # sofa = parse_sofa_message(pn[1]['message'])
+        # self.assertEqual(sofa['status'], 'error')
+        # self.assertEqual(sofa['txHash'], tx_hash)
 
     @gen_test(timeout=60)
     @requires_full_stack(parity=True, push_client=True, block_monitor=True)
@@ -265,7 +270,6 @@ class ERC20Test(EthServiceBaseTest):
         await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2,
                            "max", token_address=contract.address)
 
-        await push_client.get()
         await push_client.get()
 
         result = await contract.balanceOf(TEST_ADDRESS)

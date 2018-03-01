@@ -3,6 +3,7 @@ import asyncio
 import toshieth.monitor
 import toshieth.manager
 import toshieth.push_service
+import toshieth.erc20manager
 import toshieth.collectibles.erc721
 
 from toshi.test.base import AsyncHandlerTest
@@ -305,6 +306,45 @@ def requires_collectible_monitor(func=None, pass_collectible_monitor=False, begi
     else:
         return wrap
 
+def requires_erc20_manager(func=None, pass_erc20_manager=False, begin_started=True):
+    """Used to ensure all database connections are returned to the pool
+    before finishing the test"""
+
+    def wrap(fn):
+
+        async def wrapper(self, *args, **kwargs):
+
+            if 'ethereum' not in self._app.config:
+                raise Exception("Missing ethereum config from setup")
+
+            manager = toshieth.erc20manager.TaskManager(
+                config=self._app.config,
+                connection_pool=self._app.connection_pool,
+                redis_connection_pool=self._app.redis_connection_pool)
+
+            if begin_started:
+                await manager.start()
+
+            if pass_erc20_manager:
+                if pass_erc20_manager is True:
+                    kwargs['erc20_manager'] = manager
+                else:
+                    kwargs[pass_erc20_manager] = manager
+
+            try:
+                f = fn(self, *args, **kwargs)
+                if asyncio.iscoroutine(f):
+                    await f
+            finally:
+                await manager.shutdown(soft=True)
+
+        return wrapper
+
+    if func is not None:
+        return wrap(func)
+    else:
+        return wrap
+
 def composed(*decs):
     """Decorator to combine multiple decorators together"""
     def deco(f):
@@ -326,7 +366,7 @@ def composed(*decs):
         return f
     return deco
 
-def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None, collectible_monitor=None):
+def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None, erc20_manager=None, collectible_monitor=None):
     dec = composed(
         requires_database,
         (requires_redis, {'pass_redis': redis}),
@@ -334,6 +374,7 @@ def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, ma
         (requires_task_manager, {'pass_manager': manager}),
         (requires_block_monitor, {'pass_monitor': block_monitor}),
         (requires_push_service, (MockPushClient,), {'pass_push_client': push_client}),
+        (requires_erc20_manager, {'pass_erc20_manager': erc20_manager}),
         (requires_collectible_monitor, {'pass_collectible_monitor': collectible_monitor})
     )
     if func is None:
