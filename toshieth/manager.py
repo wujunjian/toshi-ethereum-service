@@ -444,16 +444,20 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 "SELECT DISTINCT from_address FROM transactions WHERE (status = 'unconfirmed' OR status = 'queued' OR status IS NULL) "
                 "AND v IS NOT NULL AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
             )
-        if rows:
-            log.debug("sanity check found {} addresses with potential problematic transactions".format(len(rows)))
+            rows2 = await self.db.fetch(
+                "WITH t1 AS (SELECT DISTINCT from_address FROM transactions WHERE (status IS NULL OR status = 'queued') AND v IS NOT NULL), "
+                "t2 AS (SELECT from_address, COUNT(*) FROM transactions WHERE (status = 'unconfirmed' AND v IS NOT NULL) GROUP BY from_address) "
+                "SELECT t1.from_address FROM t1 LEFT JOIN t2 ON t1.from_address = t2.from_address WHERE t2.count IS NULL;")
+        if rows or rows2:
+            log.debug("sanity check found {} addresses with potential problematic transactions".format(len(rows) + len(rows2)))
+
+        rows = set([row['from_address'] for row in rows]).union(set([row['from_address'] for row in rows2]))
 
         addresses_to_check = set()
 
         old_and_unconfirmed = []
 
-        for row in rows:
-
-            ethereum_address = row['from_address']
+        for ethereum_address in rows:
 
             # check on unconfirmed transactions
             async with self.db:
@@ -502,7 +506,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     incoming_transactions = await self.db.fetchrow(
                         "SELECT 1 FROM transactions "
                         "WHERE to_address = $1 "
-                        "AND status = 'unconfirmed' OR status = 'queued'",
+                        "AND (status = 'unconfirmed' OR status = 'queued')",
                         ethereum_address)
 
                 if not incoming_transactions:
