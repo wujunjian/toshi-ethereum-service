@@ -236,6 +236,14 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                         # simply abort for now.
                         # TODO: depending on error, just break and queue to retry later
                         log.error("ERROR sending queued transaction: {}".format(e.format()))
+                        if e.message and e.message.startswith("Transaction nonce is too low"):
+                            existing_tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                            if existing_tx:
+                                if existing_tx['blockNumber']:
+                                    await self.update_transaction(transaction['transaction_id'], 'confirmed')
+                                else:
+                                    await self.update_transaction(transaction['transaction_id'], 'unconfirmed')
+                                continue
                         previous_error = True
                         await self.update_transaction(transaction['transaction_id'], 'error')
                         addresses_to_check.add(transaction['to_address'])
