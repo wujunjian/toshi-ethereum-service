@@ -18,46 +18,98 @@ from .jsonrpc import ToshiEthJsonRPC
 from .utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
 from tornado.escape import json_encode
+from tornado.web import HTTPError
 
-class TokenHandler(DatabaseMixin, SimpleFileHandler):
+class TokenIconHandler(DatabaseMixin, SimpleFileHandler):
 
-    async def get(self, symbol_png=None):
+    async def get(self, address, format):
 
-        if symbol_png:
-            # remove .png suffix required by URL regex
-            symbol = symbol_png[:-4]
-
-            async with self.db:
-                row = await self.db.fetchrow(
-                    "SELECT * FROM tokens WHERE symbol = $1",
-                    symbol
-                )
-
-            if row is None:
-                raise HTTPError(404)
-
-            await self.handle_file_response(
-                data=row['icon'],
-                content_type="image/png",
-                etag=row['hash'],
-                last_modified=row['last_modified']
+        async with self.db:
+            row = await self.db.fetchrow(
+                "SELECT * FROM tokens WHERE contract_address = $1 AND format = lower($2)",
+                address, format
             )
 
-        else:
-            # list available tokens
+        if row is None:
+            raise HTTPError(404)
+
+        await self.handle_file_response(
+            data=row['icon'],
+            content_type="image/png",
+            etag=row['hash'],
+            last_modified=row['last_modified']
+        )
+
+
+class TokenListHandler(DatabaseMixin, BaseHandler):
+
+    async def get(self):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        async with self.db:
+            count = await self.db.fetchval("SELECT COUNT(*) FROM tokens")
+        limit = 100
+        results = []
+        for offset in range(0, count, limit):
             async with self.db:
-                rows = await self.db.fetch(
-                    "SELECT symbol, name, decimals FROM tokens "
-                    "ORDER BY symbol ASC"
-                )
+                rows = await self.db.fetch("SELECT symbol, name, contract_address, decimals, format FROM tokens OFFSET $1 LIMIT $2", offset, limit)
+            for row in rows:
+                token = {
+                    'symbol': row['symbol'],
+                    'name': row['name'],
+                    'contract_address': row['contract_address'],
+                    'decimals': row['decimals']
+                }
+                if row['format'] is not None:
+                    token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
+                                                                 token['contract_address'], row['format'])
+                else:
+                    token['icon'] = None
+                results.append(token)
 
-            tokens = [dict(symbol=r['symbol'],
-                           name=r['name'],
-                           decimals=r['decimals'],
-                           icon_url="/token/{}.png".format(r['symbol']))
-                      for r in rows]
-            self.write({"tokens": tokens})
+        self.write({"tokens": results})
 
+
+class TokenHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+
+    async def get(self, eth_address, token_address=None):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        try:
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_token_balances(eth_address, token_address=token_address)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        if token_address:
+            if result is None:
+                raise JSONHTTPError(404)
+            self.write(result)
+        else:
+            self.write({"tokens": result})
+
+
+class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+
+    async def get(self, address, contract_address=None):
+
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'GET')
+
+        try:
+            result = await ToshiEthJsonRPC(None, self.application, self.request).get_collectibles(address, contract_address)
+        except JsonRPCError as e:
+            raise JSONHTTPError(400, body={'errors': [e.data]})
+
+        if result is None:
+            raise JSONHTTPError(404, body={'error': [{'id': 'not_found', 'message': 'Not Found'}]})
+        self.write(result)
 
 class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
@@ -278,6 +330,7 @@ class GasPriceHandler(RedisMixin, BaseHandler):
         self.write({
             "gas_price": gas_station_gas_price
         })
+
 
 class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler):
 

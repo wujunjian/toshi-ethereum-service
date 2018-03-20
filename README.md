@@ -9,7 +9,7 @@ A light service that sits ontop of a standard ethereum node and provides helper 
 - Python >= 3.5
 - Postgresql >= 9.6
 - Redis >= 3.0.0
-- Parity == 1.7.8
+- Parity == 1.8.9
 
 ### Setup env
 
@@ -72,6 +72,7 @@ heroku config:set PUSH_USERNAME=<toshi-push-service-username>
 heroku config:set PUSH_PASSWORD=<toshi-push-service-password>
 heroku config:set PGSQL_STUNNEL_ENABLED=1
 heroku config:set ETHEREUM_NODE_URL=<jsonrpc-url>
+heroku config:set COLLECTIBLE_IMAGE_FORMAT_STRING=<python style format string with {contract_address} and {token_id} fields>
 ```
 
 Optional:
@@ -99,9 +100,25 @@ Install external software dependencies
 brew install postgresql
 brew install redis
 brew tap ethcore/ethcore
-brew install parity --beta
-brew tap ethereum/ethereum
-brew install cpp-ethereum
+brew install parity --stable
+```
+
+Ethminer needs to be installed manually
+
+```
+brew install llvm
+export CC=/usr/local/opt/llvm/bin/clang
+export CXX=/usr/local/opt/llvm/bin/clang++
+export CXXFLAGS='-I/usr/local/opt/llvm/include -I/usr/local/opt/llvm/include/c++/v1/'
+export CPPFLAGS='-I/usr/local/opt/llvm/include -I/usr/local/opt/llvm/include/c++/v1/'
+export LDFLAGS='-L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib'
+git clone --recursive https://github.com/ethereum/cpp-ethereum.git
+cd cpp-ethereum
+mkdir build
+cd build
+cmake ..
+cmake --build . --target ethminer
+export PATH="$(pwd)/ethminer:$PATH"
 ```
 
 A convinience script exists to run all tests:

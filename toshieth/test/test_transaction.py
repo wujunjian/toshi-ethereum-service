@@ -209,7 +209,7 @@ class TransactionTest(EthServiceBaseTest):
         default_fees = DEFAULT_STARTGAS * DEFAULT_GASPRICE
 
         tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ADDRESS, val)
-        await self.wait_on_tx_confirmation(tx_hash, check_db=True)
+        await self.wait_on_tx_confirmation(tx_hash)
 
         resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))
         self.assertEqual(resp.code, 200)
@@ -233,7 +233,7 @@ class TransactionTest(EthServiceBaseTest):
         tx_hash = body['tx_hash']
 
         # wait for a push notification
-        await self.wait_on_tx_confirmation(tx_hash, check_db=True)
+        await self.wait_on_tx_confirmation(tx_hash)
 
         # make sure balance is returned correctly (and is 0)
         resp = await self.fetch('/balance/{}'.format(TEST_ADDRESS))

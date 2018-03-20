@@ -1,3 +1,4 @@
+import asyncio
 import binascii
 from toshi.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
 from toshi.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
@@ -23,7 +24,7 @@ from toshi.ethereum.utils import personal_ecrecover
 from toshi.log import log
 
 from .mixins import BalanceMixin
-from .utils import RedisLock, database_transaction_to_rlp_transaction
+from .utils import RedisLock, RedisLockException, database_transaction_to_rlp_transaction
 
 class JsonRPCInsufficientFundsError(JsonRPCError):
     def __init__(self, *, request=None, data=None):
@@ -89,7 +90,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             return nw_nonce
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
-    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None):
+    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None, token_address=None):
 
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
@@ -103,13 +104,6 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         if to_address is not None and to_address != to_address.lower() and not checksum_validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address Checksum'})
 
-        if value:
-            value = parse_int(value)
-            if value is None or value < 0:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
-
-        # check optional arguments
-
         # check if we should ignore the given gasprice
         # NOTE: only meant to be here while cryptokitty fever is pushing
         # up gas prices... this shouldn't be perminant
@@ -122,6 +116,23 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                     whitelisted = await self.db.fetchrow("SELECT 1 FROM to_address_gas_price_whitelist WHERE address = $1", to_address)
             if not whitelisted:
                 gas_price = None
+
+        if gas_price is None:
+            # try and use cached gas station gas price
+            gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
+            if gas_station_gas_price:
+                gas_price = parse_int(gas_station_gas_price)
+            if gas_price is None:
+                gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
+        else:
+            gas_price = parse_int(gas_price)
+            if gas_price is None:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
+
+        if gas is not None:
+            gas = parse_int(gas)
+            if gas is None:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
 
         if nonce is None:
             # check cache for nonce
@@ -144,32 +155,100 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         else:
             data = b''
 
+        # flag to force arguments into an erc20 token transfer
+        if token_address is not None:
+            if not validate_address(token_address):
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
+            if data != b'':
+                raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': 'Cannot include both data and token_address'})
+
+            if isinstance(value, str) and value.lower() == "max":
+                # get the balance in the database
+                async with self.db:
+                    value = await self.db.fetchval("SELECT value FROM token_balances "
+                                                   "WHERE contract_address = $1 AND eth_address = $2",
+                                                   token_address, from_address)
+                if value is None:
+                    # get the value from the ethereum node
+                    data = "0x70a08231000000000000000000000000" + from_address[2:].lower()
+                    value = await self.eth.eth_call(to_address=token_address, data=data)
+
+            value = parse_int(value)
+            if value is None or value < 0:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
+            data = data_decoder("0xa9059cbb000000000000000000000000{}{:064x}".format(to_address[2:].lower(), value))
+            token_value = value
+            value = 0
+            to_address = token_address
+
+        elif value:
+
+            if value == "max":
+                network_balance, balance, _, _ = await self.get_balances(from_address)
+                if gas is None:
+                    code = await self.eth.eth_getCode(to_address)
+                    if code:
+                        # we might have to do some work
+                        try:
+                            gas = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=0)
+                        except JsonRPCError:
+                            # no fallback function implemented in the contract means no ether can be sent to it
+                            raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                        attempts = 0
+                        # because the default function could do different things based on the eth sent, we make sure
+                        # the value is suitable. if we get different values 3 times abort
+                        while True:
+                            if attempts > 2:
+                                log.warning("Hit max attempts trying to get max value to send to contract '{}'".format(to_address))
+                                raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                            value = balance - (gas_price * gas)
+                            try:
+                                gas_with_value = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=value)
+                            except JsonRPCError:
+                                # no fallback function implemented in the contract means no ether can be sent to it
+                                raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Cannot send payments to that address'})
+                            if gas_with_value != gas:
+                                gas = gas_with_value
+                                attempts += 1
+                                continue
+                            else:
+                                break
+                    else:
+                        # normal address, 21000 gas per transaction
+                        gas = 21000
+                        value = balance - (gas_price * gas)
+                else:
+                    # preset gas, run with it!
+                    value = balance - (gas_price * gas)
+            else:
+                value = parse_int(value)
+                if value is None or value < 0:
+                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_value', 'message': 'Invalid Value'})
+
         if gas is None:
             try:
                 gas = await self.eth.eth_estimateGas(from_address, to_address, data=data, value=value)
             except JsonRPCError:
                 # this can occur if sending a transaction to a contract that doesn't match a valid method
-                # and the contract has no default method implemented
+                # and the contract has no default method implemented.
+                # this can also happen if the current state of the blockchain means that submitting the
+                # transaction would fail (abort).
+                if token_address is not None:
+                    # when dealing with erc20, this usually means the user's balance for that token isn't
+                    # high enough, check that and throw an error if it's the case, and if not fall
+                    # back to the standard invalid_data error
+                    async with self.db:
+                        bal = await self.db.fetchval("SELECT value FROM token_balances "
+                                                     "WHERE contract_address = $1 AND eth_address = $2",
+                                                     token_address, from_address)
+                    if bal is not None:
+                        bal = parse_int(bal)
+                        if bal < token_value:
+                            raise JsonRPCInsufficientFundsError(data={'id': 'insufficient_funds', 'message': 'Insufficient Funds'})
                 raise JsonRPCInvalidParamsError(data={'id': 'invalid_data', 'message': 'Unable to estimate gas for contract call'})
             # if data is present, buffer gas estimate by 20%
             if len(data) > 0:
                 gas = int(gas * 1.2)
-        else:
-            gas = parse_int(gas)
-            if gas is None:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas', 'message': 'Invalid Gas'})
-
-        if gas_price is None:
-            # try and use cached gas station gas price
-            gas_station_gas_price = self.redis.get('gas_station_standard_gas_price')
-            if gas_station_gas_price:
-                gas_price = parse_int(gas_station_gas_price)
-            if gas_price is None:
-                gas_price = self.application.config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
-        else:
-            gas_price = parse_int(gas_price)
-            if gas_price is None:
-                raise JsonRPCInvalidParamsError(data={'id': 'invalid_gas_price', 'message': 'Invalid Gas Price'})
 
         try:
             tx = create_transaction(nonce=nonce, gasprice=gas_price, startgas=gas,
@@ -186,7 +265,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         transaction = encode_transaction(tx)
 
-        return {"tx": transaction, "gas": hex(gas), "gas_price": hex(gas_price), "nonce": hex(nonce), "value": hex(value)}
+        return {"tx": transaction, "gas": hex(gas), "gas_price": hex(gas_price), "nonce": hex(nonce),
+                "value": hex(token_value) if token_address else hex(value)}
 
     async def send_transaction(self, *, tx, signature=None):
 
@@ -289,19 +369,47 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 log.info("Setting tx '{}' to error due to forced overwrite".format(existing['hash']))
                 self.tasks.update_transaction(existing['transaction_id'], 'error')
 
+            data = data_encoder(tx.data)
+            if data and \
+               ((data.startswith("0xa9059cbb") and len(data) == 138) or \
+                (data.startswith("0x23b872dd") and len(data) == 202)):
+                # check if the token is a known erc20 token
+                async with self.db:
+                    erc20_token = await self.db.fetchrow("SELECT * FROM tokens WHERE contract_address = $1",
+                                                         to_address)
+            else:
+                erc20_token = False
+
             # add tx to database
             async with self.db:
-                await self.db.execute(
+                db_tx = await self.db.fetchrow(
                     "INSERT INTO transactions "
                     "(hash, from_address, to_address, nonce, "
                     "value, gas, gas_price, "
                     "data, v, r, s, "
                     "sender_toshi_id) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) "
+                    "RETURNING transaction_id",
                     tx_hash, from_address, to_address, tx.nonce,
                     hex(tx.value), hex(tx.startgas), hex(tx.gasprice),
                     data_encoder(tx.data), hex(tx.v), hex(tx.r), hex(tx.s),
                     self.user_toshi_id)
+
+                if erc20_token:
+                    token_value = int(data[-64:], 16)
+                    if data.startswith("0x23b872dd"):
+                        erc20_from_address = "0x" + data[34:74]
+                        erc20_to_address = "0x" + data[98:138]
+                    else:
+                        erc20_from_address = from_address
+                        erc20_to_address = "0x" + data[34:74]
+                    await self.db.execute(
+                        "INSERT INTO token_transactions "
+                        "(transaction_id, transaction_log_index, contract_address, from_address, to_address, value) "
+                        "VALUES ($1, $2, $3, $4, $5, $6)",
+                        db_tx['transaction_id'], 0, erc20_token['contract_address'],
+                        erc20_from_address, erc20_to_address, hex(token_value))
+
                 await self.db.commit()
 
             # trigger processing the transaction queue
@@ -371,3 +479,136 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
 
         log.info("Setting tx '{}' to error due to user cancelation".format(tx['hash']))
         self.tasks.update_transaction(tx['transaction_id'], 'error')
+
+    async def get_token_balances(self, eth_address, token_address=None):
+        if not validate_address(eth_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+        if token_address is not None and not validate_address(token_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_token_address', 'message': 'Invalid Token Address'})
+
+        # get token balances
+        while True:
+            async with self.db:
+                result = await self.db.execute("UPDATE token_registrations SET last_queried = (now() AT TIME ZONE 'utc') WHERE eth_address = $1", eth_address)
+                await self.db.commit()
+            registered = result == "UPDATE 1"
+
+            if not registered:
+                try:
+                    with RedisLock(self.redis, "token_balance_update:{}".format(eth_address)):
+                        try:
+                            await self.tasks.update_token_cache("*", eth_address)
+                        except:
+                            log.exception("Error updating token cache")
+                            raise
+                        async with self.db:
+                            await self.db.execute("INSERT INTO token_registrations (eth_address) VALUES ($1)", eth_address)
+                            await self.db.commit()
+                    break
+                except RedisLockException:
+                    # wait until the previous task is done and try again
+                    await asyncio.sleep(0.1)
+                    continue
+            else:
+                break
+
+        if token_address:
+            async with self.db:
+                token = await self.db.fetchrow(
+                    "SELECT symbol, name, decimals, format "
+                    "FROM tokens WHERE contract_address = $1",
+                    token_address)
+                if token is None:
+                    return None
+                balance = await self.db.fetchval(
+                    "SELECT value "
+                    "FROM token_balances "
+                    "WHERE eth_address = $1 AND contract_address = $2",
+                    eth_address, token_address)
+            if balance is None:
+                balance = "0x0"
+            details = {
+                "symbol": token['symbol'],
+                "name": token['name'],
+                "decimals": token['decimals'],
+                "value": balance,
+                "contract_address": token_address
+            }
+            if token['format'] is not None:
+                details["icon"] = "{}://{}/token/{}.{}".format(
+                    self.request.protocol, self.request.host, token_address, token['format'])
+            else:
+                details['icon'] = None
+            return details
+        else:
+            async with self.db:
+                balances = await self.db.fetch(
+                    "SELECT t.symbol, t.name, t.decimals, b.value, b.contract_address, t.format "
+                    "FROM token_balances b "
+                    "JOIN tokens t "
+                    "ON t.contract_address = b.contract_address "
+                    "WHERE eth_address = $1 ORDER BY t.symbol", eth_address)
+
+            tokens = []
+            for b in balances:
+                details = {
+                    "symbol": b['symbol'],
+                    "name": b['name'],
+                    "decimals": b['decimals'],
+                    "value": b['value'],
+                    "contract_address": b['contract_address']
+                }
+                if b['format'] is not None:
+                    details["icon"] = "{}://{}/token/{}.{}".format(
+                        self.request.protocol, self.request.host, b['contract_address'], b['format'])
+                else:
+                    details['icon'] = None
+
+                tokens.append(details)
+
+            return tokens
+
+    async def get_collectibles(self, address, contract_address=None):
+
+        if not validate_address(address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Address'})
+        if contract_address is not None and not validate_address(contract_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_contract_address', 'message': 'Invalid Contract Address'})
+
+        if contract_address is None:
+            async with self.db:
+                collectibles = await self.db.fetch(
+                    "SELECT t.contract_address, COUNT(t.token_id) AS value, c.name, c.icon, c.url "
+                    "FROM collectible_tokens t "
+                    "JOIN collectibles c ON c.contract_address = t.contract_address "
+                    "WHERE t.owner_address = $1 AND c.ready = true "
+                    "GROUP BY t.contract_address, c.name, c.icon, c.url",
+                    address)
+
+            return {"collectibles": [{
+                "contract_address": c['contract_address'],
+                "value": hex(c['value']),
+                "name": c['name'],
+                "url": c["url"],
+                "icon": c['icon']
+            } for c in collectibles]}
+        else:
+            async with self.db:
+                collectible = await self.db.fetchrow(
+                    "SELECT * FROM collectibles WHERE contract_address = $1 AND ready = true",
+                    contract_address)
+                tokens = await self.db.fetch(
+                    "SELECT * FROM collectible_tokens "
+                    "WHERE contract_address = $1 AND owner_address = $2",
+                    contract_address, address)
+
+            if collectible is None:
+                return None
+            return {
+                "contract_address": collectible["contract_address"],
+                "name": collectible["name"],
+                "icon": collectible["icon"],
+                "url": collectible["url"],
+                "value": hex(len(tokens)),
+                "tokens": [dict(t) for t in tokens]
+            }

@@ -1,24 +1,25 @@
 import asyncio
 import logging
-import re
 
 from tornado.httpclient import AsyncHTTPClient
-from tornado.escape import json_decode
+from tornado.escape import json_decode, json_encode
+
 from toshi.database import DatabaseMixin
 from toshi.redis import RedisMixin
 from toshieth.mixins import BalanceMixin
 from toshi.ethereum.mixin import EthereumMixin
 from toshi.jsonrpc.errors import JsonRPCError
-from toshi.log import configure_logger
+from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.utils import parse_int
 from toshi.tasks import TaskHandler, TaskDispatcher
 from toshi.sofa import SofaPayment
 from toshi.ethereum.tx import (
     create_transaction, add_signature_to_transaction, encode_transaction
 )
-from toshi.ethereum.utils import data_decoder, data_encoder
+from toshi.ethereum.utils import data_decoder, data_encoder, decode_single_address
 
 from toshieth.tasks import TaskListenerApplication
+from toshieth.constants import TRANSFER_TOPIC, DEPOSIT_TOPIC, WITHDRAWAL_TOPIC, WETH_CONTRACT_ADDRESS
 
 log = logging.getLogger("toshieth.manager")
 
@@ -234,6 +235,14 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                         # simply abort for now.
                         # TODO: depending on error, just break and queue to retry later
                         log.error("ERROR sending queued transaction: {}".format(e.format()))
+                        if e.message and e.message.startswith("Transaction nonce is too low"):
+                            existing_tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                            if existing_tx:
+                                if existing_tx['blockNumber']:
+                                    await self.update_transaction(transaction['transaction_id'], 'confirmed')
+                                else:
+                                    await self.update_transaction(transaction['transaction_id'], 'unconfirmed')
+                                continue
                         previous_error = True
                         await self.update_transaction(transaction['transaction_id'], 'error')
                         addresses_to_check.add(transaction['to_address'])
@@ -289,12 +298,20 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
         if transactions_out:
             self.tasks.process_transaction_queue(ethereum_address)
 
+    @log_unhandled_exceptions(logger=log)
     async def update_transaction(self, transaction_id, status):
 
         async with self.db:
             tx = await self.db.fetchrow("SELECT * FROM transactions WHERE transaction_id = $1", transaction_id)
             if tx is None or tx['status'] == status:
                 return
+
+            token_txs = await self.db.fetch(
+                "SELECT tok.symbol, tok.name, tok.decimals, tx.contract_address, tx.value, tx.from_address, tx.to_address, tx.transaction_log_index, tx.status "
+                "FROM token_transactions tx "
+                "JOIN tokens tok "
+                "ON tok.contract_address = tx.contract_address "
+                "WHERE tx.transaction_id = $1", transaction_id)
 
             # check if we're trying to update the state of a tx that is already confirmed, we have an issue
             if tx['status'] == 'confirmed':
@@ -305,19 +322,22 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             if tx['v'] is not None:
                 log.info("Updating status of tx {} to {} (previously: {})".format(tx['hash'], status, tx['status']))
 
-            if status == 'confirmed':
-                transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
-                if transaction and 'blockNumber' in transaction:
-                    blocknumber = parse_int(transaction['blockNumber'])
+        if status == 'confirmed':
+            transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
+            if transaction and 'blockNumber' in transaction:
+                blocknumber = parse_int(transaction['blockNumber'])
+                async with self.db:
                     await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
                                           "WHERE transaction_id = $3",
                                           status, blocknumber, transaction_id)
-                else:
-                    log.error("requested transaction '{}''s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+                    await self.db.commit()
             else:
+                log.error("requested transaction '{}''s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+        else:
+            async with self.db:
                 await self.db.execute("UPDATE transactions SET status = $1, updated = (now() AT TIME ZONE 'utc') WHERE transaction_id = $2",
                                       status, transaction_id)
-            await self.db.commit()
+                await self.db.commit()
 
         # render notification
 
@@ -328,33 +348,102 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
             # there's already been a tx for this so no need to send another
             return
 
-        payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
-                              fromAddress=tx['from_address'], toAddress=tx['to_address'],
-                              networkId=self.application.config['ethereum']['network_id'])
-        message = payment.render()
+        messages = []
+
+        # check if this is an erc20 transaction, if so use those values
+        if token_txs:
+            if status == 'confirmed':
+                tx_receipt = await self.eth.eth_getTransactionReceipt(tx['hash'])
+                if tx_receipt is None:
+                    log.error("Failed to get transaction receipt for confirmed transaction: {}".format(tx_receipt))
+                    # requeue to try again
+                    self.tasks.update_transaction(transaction_id, status)
+                    return
+            for token_tx in token_txs:
+                token_tx_status = status
+                from_address = token_tx['from_address']
+                to_address = token_tx['to_address']
+                if status == 'confirmed':
+                    # check transaction receipt to make sure the transfer was successful
+                    has_transfer_event = False
+                    if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
+                        for _log in tx_receipt['logs']:
+                            if len(_log['topics']) > 2:
+                                if _log['topics'][0] == TRANSFER_TOPIC and \
+                                   decode_single_address(_log['topics'][1]) == from_address and \
+                                   decode_single_address(_log['topics'][2]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                            elif _log['address'] == WETH_CONTRACT_ADDRESS:
+                                if _log['topics'][0] == DEPOSIT_TOPIC and decode_single_address(_log['topics'][1]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                                elif _log['topics'][0] == WITHDRAWAL_TOPIC and decode_single_address(_log['topics'][1]) == from_address:
+                                    has_transfer_event = True
+                                    break
+                    if not has_transfer_event:
+                        # there was no Transfer event matching this transaction
+                        token_tx_status = 'error'
+                    else:
+                        self.tasks.update_token_cache(token_tx['contract_address'],
+                                                      from_address,
+                                                      to_address)
+                if token_tx_status == 'confirmed':
+                    data = {
+                        "txHash": tx['hash'],
+                        "fromAddress": from_address,
+                        "toAddress": to_address,
+                        "status": token_tx_status,
+                        "value": token_tx['value'],
+                        "contractAddress": token_tx['contract_address']
+                    }
+                    messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment:" + json_encode(data)))
+                async with self.db:
+                    await self.db.execute(
+                        "UPDATE token_transactions SET status = $1 "
+                        "WHERE transaction_id = $2 AND transaction_log_index = $3",
+                        token_tx_status, tx['transaction_id'], token_tx['transaction_log_index'])
+                    await self.db.commit()
+
+                # if a WETH deposit or withdrawal, we need to let the client know to
+                # update their ETHER balance using a normal SOFA:Payment
+                if token_tx['contract_address'] == WETH_CONTRACT_ADDRESS and (from_address == "0x0000000000000000000000000000000000000000" or to_address == "0x0000000000000000000000000000000000000000"):
+                    payment = SofaPayment(value=parse_int(token_tx['value']), txHash=tx['hash'],
+                                          status=status, fromAddress=from_address, toAddress=to_address,
+                                          networkId=self.application.config['ethereum']['network_id'])
+                    messages.append((from_address, to_address, status, payment.render()))
+
+        else:
+            from_address = tx['from_address']
+            to_address = tx['to_address']
+            payment = SofaPayment(value=parse_int(tx['value']), txHash=tx['hash'], status=status,
+                                  fromAddress=from_address, toAddress=to_address,
+                                  networkId=self.application.config['ethereum']['network_id'])
+            messages.append((from_address, to_address, status, payment.render()))
 
         # figure out what addresses need pns
         # from address always needs a pn
-        self.tasks.send_notification(tx['from_address'], message)
+        for from_address, to_address, status, message in messages:
+            self.tasks.send_notification(from_address, message)
 
-        # no need to check to_address for contract deployments
-        if tx['to_address'] == "0x":
-            # TODO: update any notification registrations to be marked as a contract
-            return
+            # no need to check to_address for contract deployments
+            if to_address == "0x":
+                # TODO: update any notification registrations to be marked as a contract
+                return
 
-        # check if this is a brand new tx with no status
-        if tx['status'] is None:
-            # if an error has happened before any PNs have been sent
-            # we only need to send the error to the sender, thus we
-            # only add 'to' if the new status is not an error
-            if status != 'error':
-                self.tasks.send_notification(tx['to_address'], message)
-        else:
-            self.tasks.send_notification(tx['to_address'], message)
+            # check if this is a brand new tx with no status
+            if tx['status'] is None:
+                # if an error has happened before any PNs have been sent
+                # we only need to send the error to the sender, thus we
+                # only add 'to' if the new status is not an error
+                if status != 'error':
+                    self.tasks.send_notification(to_address, message)
+            else:
+                self.tasks.send_notification(to_address, message)
 
-        # trigger a processing of the to_address's queue incase it has
-        # things waiting on this transaction
-        self.tasks.process_transaction_queue(tx['to_address'])
+            # trigger a processing of the to_address's queue incase it has
+            # things waiting on this transaction
+            self.tasks.process_transaction_queue(to_address)
 
     async def sanity_check(self, frequency):
         async with self.db:
@@ -362,16 +451,20 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                 "SELECT DISTINCT from_address FROM transactions WHERE (status = 'unconfirmed' OR status = 'queued' OR status IS NULL) "
                 "AND v IS NOT NULL AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
             )
-        if rows:
-            log.debug("sanity check found {} addresses with potential problematic transactions".format(len(rows)))
+            rows2 = await self.db.fetch(
+                "WITH t1 AS (SELECT DISTINCT from_address FROM transactions WHERE (status IS NULL OR status = 'queued') AND v IS NOT NULL), "
+                "t2 AS (SELECT from_address, COUNT(*) FROM transactions WHERE (status = 'unconfirmed' AND v IS NOT NULL) GROUP BY from_address) "
+                "SELECT t1.from_address FROM t1 LEFT JOIN t2 ON t1.from_address = t2.from_address WHERE t2.count IS NULL;")
+        if rows or rows2:
+            log.debug("sanity check found {} addresses with potential problematic transactions".format(len(rows) + len(rows2)))
+
+        rows = set([row['from_address'] for row in rows]).union(set([row['from_address'] for row in rows2]))
 
         addresses_to_check = set()
 
         old_and_unconfirmed = []
 
-        for row in rows:
-
-            ethereum_address = row['from_address']
+        for ethereum_address in rows:
 
             # check on unconfirmed transactions
             async with self.db:
@@ -420,7 +513,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
                     incoming_transactions = await self.db.fetchrow(
                         "SELECT 1 FROM transactions "
                         "WHERE to_address = $1 "
-                        "AND status = 'unconfirmed' OR status = 'queued'",
+                        "AND (status = 'unconfirmed' OR status = 'queued')",
                         ethereum_address)
 
                 if not incoming_transactions:
@@ -478,6 +571,7 @@ class TransactionQueueHandler(DatabaseMixin, RedisMixin, EthereumMixin, BalanceM
 
         if frequency:
             self.tasks.update_default_gas_price(frequency, delay=frequency)
+
 
 class TaskManager(TaskListenerApplication):
 

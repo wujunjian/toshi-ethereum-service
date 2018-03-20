@@ -16,6 +16,8 @@ Optionally the caller can provide a `none`, `gas` and `gasPrice` values to overr
 Note: A `nonce` for the transaction is picked based on the next available nonce for the given source address,
 so it is important that the same address is used to sign the returned skeleton.
 
+The optional value `token_address` is used to create erc20 token transfers. Set `token_address` to the erc20 contract address, and the endpoint will return a transaction with the appropriate data field.
+
 ### Create a new unsigned transaction [POST]
 
 + Request (application/json)
@@ -36,6 +38,16 @@ so it is important that the same address is used to sign the returned skeleton.
             "nonce": 1
             "value": 1000000000000000000,
 	    "data": "0xffffffff"
+        }
+
+
++ Request (application/json)
+
+        {
+            "from": "0x676f7cb80c9ff6a55e8992d94bac9a3212282c3a",
+            "to": "0xdb089a4f9a8c5f17040b4fc51647e942b5fc601d",
+            "value": "0xde0b6b3a7640000",
+            "token_address": "0x600b1b25ca28fc78449e900caa9508f8d5499332"
         }
 
 + Response 200 (application/json)

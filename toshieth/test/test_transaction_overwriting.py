@@ -81,7 +81,7 @@ class TransactionOverwriteTest(EthServiceBaseTest):
         ethminer.pause()
         e2.pause()
 
-        # make sure transactions are "interesting" to the monitory
+        # make sure transactions are "interesting" to the monitor
         async with self.pool.acquire() as con:
             for addr, pk in TEST_ADDRESSES[:3]:
                 await con.fetch("INSERT INTO notification_registrations (service, registration_id, toshi_id, eth_address) VALUES ($1, $2, $3, $4)",

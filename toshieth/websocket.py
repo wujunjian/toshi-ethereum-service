@@ -141,7 +141,11 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler, DatabaseMixin, Ethere
     @tornado.web.asynchronous
     def get(self, *args, **kwargs):
 
-        self.user_toshi_id = self.verify_request()
+        if self.is_request_signed():
+            self.user_toshi_id = self.verify_request()
+        else:
+            # assign a fake toshi_id
+            self.user_toshi_id = "0x00000000000000000000{}".format(os.urandom(10).hex())
         self.subscription_ids = set()
         self.filter_ids = set()
         return super().get(*args, **kwargs)
@@ -275,6 +279,10 @@ class WebsocketNotificationHandler(TaskHandler):
 
     async def send_notification(self, subscription_id, message):
         if subscription_id in self.application.callbacks:
+            # ignore TokenPayments sent to websockets for now
+            # as it currently breaks bots
+            if message.startswith("SOFA::TokenPayment:"):
+                return
             for callback in self.application.callbacks[subscription_id]:
                 try:
                     f = callback(subscription_id, message)
